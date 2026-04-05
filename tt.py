@@ -80,23 +80,35 @@ def repl(fixed_target=None):
 
 
 def _ensure_display():
-    """Set DISPLAY for xclip if not already set (e.g. in tmux/tty sessions)."""
-    if platform.system() != "Linux" or os.environ.get("DISPLAY"):
+    """Set DISPLAY and XAUTHORITY for xclip in tmux/tty sessions."""
+    if platform.system() != "Linux":
         return
-    # Find active X display from Xorg process
-    try:
-        out = subprocess.run(
-            ["pgrep", "-a", "Xorg"], capture_output=True, text=True, timeout=2
-        ).stdout
-        for line in out.splitlines():
-            for token in line.split():
-                if token.startswith(":"):
-                    os.environ["DISPLAY"] = token.split()[0]
-                    return
-        # Fallback
-        os.environ["DISPLAY"] = ":0"
-    except Exception:
-        os.environ["DISPLAY"] = ":0"
+    if not os.environ.get("DISPLAY"):
+        try:
+            out = subprocess.run(
+                ["pgrep", "-a", "Xorg"], capture_output=True, text=True, timeout=2
+            ).stdout
+            for line in out.splitlines():
+                for token in line.split():
+                    if token.startswith(":"):
+                        os.environ["DISPLAY"] = token.split()[0]
+                        break
+                if os.environ.get("DISPLAY"):
+                    break
+            else:
+                os.environ["DISPLAY"] = ":0"
+        except Exception:
+            os.environ["DISPLAY"] = ":0"
+    if not os.environ.get("XAUTHORITY"):
+        # GDM stores Xauthority here; other DMs may differ
+        candidates = [
+            f"/run/user/{os.getuid()}/gdm/Xauthority",
+            os.path.expanduser("~/.Xauthority"),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                os.environ["XAUTHORITY"] = path
+                break
 
 
 def get_clipboard():
