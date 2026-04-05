@@ -171,14 +171,92 @@ def clip_watch(fixed_target=None):
             break
 
 
+def gui(fixed_target=None):
+    """Tkinter GUI mode."""
+    import tkinter as tk
+    import threading
+
+    root = tk.Tk()
+    root.title("tt - Terminal Translator")
+    root.geometry("600x400")
+    root.configure(bg="#2b2b2b")
+
+    style = {"bg": "#2b2b2b", "fg": "#e0e0e0", "insertbackground": "#e0e0e0",
+             "selectbackground": "#4a6fa5", "font": ("monospace", 12)}
+
+    # Target language selector
+    top_frame = tk.Frame(root, bg="#2b2b2b")
+    top_frame.pack(fill="x", padx=8, pady=(8, 4))
+
+    tk.Label(top_frame, text="target:", bg="#2b2b2b", fg="#888",
+             font=("monospace", 10)).pack(side="left")
+    lang_var = tk.StringVar(value=fixed_target or "auto")
+    lang_entry = tk.Entry(top_frame, textvariable=lang_var, width=6,
+                          bg="#3c3c3c", fg="#e0e0e0", insertbackground="#e0e0e0",
+                          font=("monospace", 10), bd=0, highlightthickness=1,
+                          highlightcolor="#4a6fa5")
+    lang_entry.pack(side="left", padx=(4, 0))
+
+    # Input
+    input_text = tk.Text(root, height=6, bd=0, highlightthickness=1,
+                         highlightcolor="#4a6fa5", wrap="word", **style)
+    input_text.pack(fill="x", padx=8, pady=(4, 4))
+
+    # Status bar
+    status_var = tk.StringVar(value="Enter or Ctrl+Enter to translate")
+    status_label = tk.Label(root, textvariable=status_var, bg="#2b2b2b",
+                            fg="#666", font=("monospace", 9), anchor="w")
+    status_label.pack(fill="x", padx=8)
+
+    # Output
+    output_text = tk.Text(root, bd=0, highlightthickness=1,
+                          highlightcolor="#4a6fa5", wrap="word", state="disabled",
+                          **style)
+    output_text.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+
+    def set_output(text):
+        output_text.config(state="normal")
+        output_text.delete("1.0", "end")
+        output_text.insert("1.0", text)
+        output_text.config(state="disabled")
+
+    def do_translate(_event=None):
+        text = input_text.get("1.0", "end").strip()
+        if not text:
+            return "break"
+        lang = lang_var.get().strip()
+        target = lang if lang and lang != "auto" else None
+        status_var.set("translating...")
+
+        def run():
+            try:
+                result = translate_auto(text, target)
+                root.after(0, lambda: set_output(result))
+                root.after(0, lambda: status_var.set("done"))
+            except Exception as e:
+                root.after(0, lambda: set_output(f"[error] {e}"))
+                root.after(0, lambda: status_var.set("error"))
+
+        threading.Thread(target=run, daemon=True).start()
+        return "break"
+
+    input_text.bind("<Return>", do_translate)
+    input_text.bind("<Control-Return>", do_translate)
+    input_text.bind("<Shift-Return>", lambda e: None)  # allow newline
+
+    input_text.focus_set()
+    root.mainloop()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="tt - Terminal Translator",
-        usage="tt [text] | tt --clip | tt -t <lang> [text]",
+        usage="tt [text] | tt --clip | tt --repl | tt -t <lang> [text]",
     )
     parser.add_argument("text", nargs="*", help="text to translate")
     parser.add_argument("-t", "--target", default=None, help="target language (default: auto-toggle ko/en)")
     parser.add_argument("--clip", action="store_true", help="clipboard monitoring mode")
+    parser.add_argument("--repl", action="store_true", help="interactive REPL mode")
     args = parser.parse_args()
 
     if args.clip:
@@ -197,8 +275,10 @@ def main():
             except Exception as e:
                 print(f"[error] {e}", file=sys.stderr)
                 sys.exit(1)
-    else:
+    elif args.repl:
         repl(args.target)
+    else:
+        gui(args.target)
 
 
 if __name__ == "__main__":
