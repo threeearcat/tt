@@ -175,6 +175,14 @@ def main():
         except Exception as e:
             print(f"[error] {e}", file=sys.stderr)
             sys.exit(1)
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read().strip()
+        if text:
+            try:
+                print(translate_auto(text, args.target))
+            except Exception as e:
+                print(f"[error] {e}", file=sys.stderr)
+                sys.exit(1)
     else:
         repl(args.target)
 
