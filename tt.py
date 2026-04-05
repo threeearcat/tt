@@ -326,15 +326,33 @@ def gui(fixed_target=None, clip_mode=False):
 
     root.after(500, poll_clipboard)
 
+    def apply_zoom():
+        f = text_font()
+        input_text.config(font=f)
+        output_text.config(font=f)
+        status_var.set(f"font size: {font_size[0]}")
+
     def zoom(event):
         if event.delta > 0 or event.num == 4:
             font_size[0] = min(font_size[0] + 1, 40)
         else:
             font_size[0] = max(font_size[0] - 1, 8)
-        f = text_font()
-        input_text.config(font=f)
-        output_text.config(font=f)
-        status_var.set(f"font size: {font_size[0]}")
+        apply_zoom()
+
+    def zoom_in(_event=None):
+        font_size[0] = min(font_size[0] + 1, 40)
+        apply_zoom()
+        return "break"
+
+    def zoom_out(_event=None):
+        font_size[0] = max(font_size[0] - 1, 8)
+        apply_zoom()
+        return "break"
+
+    def zoom_reset(_event=None):
+        font_size[0] = 13
+        apply_zoom()
+        return "break"
 
     input_text.bind("<Return>", do_translate)
     input_text.bind("<Control-Return>", do_translate)
@@ -342,6 +360,10 @@ def gui(fixed_target=None, clip_mode=False):
     root.bind("<Control-Button-4>", zoom)   # Linux scroll up
     root.bind("<Control-Button-5>", zoom)   # Linux scroll down
     root.bind("<Control-MouseWheel>", zoom) # macOS/Windows
+    root.bind("<Control-plus>", zoom_in)
+    root.bind("<Control-equal>", zoom_in)
+    root.bind("<Control-minus>", zoom_out)
+    root.bind("<Control-0>", zoom_reset)
 
     # Set initial sash position after window is drawn
     def set_sash(_=None):
