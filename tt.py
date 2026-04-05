@@ -174,57 +174,96 @@ def clip_watch(fixed_target=None):
 def gui(fixed_target=None, clip_mode=False):
     """Tkinter GUI mode."""
     import tkinter as tk
+    import tkinter.font as tkfont
     import threading
 
+    BG = "#1d2021"
+    BG2 = "#282828"
+    FG = "#ebdbb2"
+    FG_DIM = "#928374"
+    ACCENT = "#83a598"
+    SELECT = "#3c3836"
+
     root = tk.Tk()
-    root.title("tt - Terminal Translator")
-    root.geometry("600x400")
-    root.configure(bg="#2b2b2b")
+    root.title("tt")
+    root.geometry("700x500")
+    root.minsize(400, 300)
+    root.configure(bg=BG)
 
-    font_size = [14]
+    # Font setup - prefer good CJK fonts
+    font_size = [13]
+    font_family = "monospace"
+    for candidate in ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]:
+        if candidate in tkfont.families():
+            font_family = candidate
+            break
 
-    def make_style():
-        return {"bg": "#2b2b2b", "fg": "#e0e0e0", "insertbackground": "#e0e0e0",
-                "selectbackground": "#4a6fa5", "font": ("monospace", font_size[0])}
+    def text_font():
+        return (font_family, font_size[0])
 
-    style = make_style()
+    def ui_font(size=0):
+        return (font_family, size or max(font_size[0] - 2, 9))
 
-    # Target language selector + clip toggle
-    top_frame = tk.Frame(root, bg="#2b2b2b")
-    top_frame.pack(fill="x", padx=8, pady=(8, 4))
+    # Top bar
+    top_frame = tk.Frame(root, bg=BG, pady=6)
+    top_frame.pack(fill="x", padx=12)
 
-    tk.Label(top_frame, text="target:", bg="#2b2b2b", fg="#888",
-             font=("monospace", 10)).pack(side="left")
+    tk.Label(top_frame, text="target:", bg=BG, fg=FG_DIM,
+             font=ui_font(11)).pack(side="left")
     lang_var = tk.StringVar(value=fixed_target or "auto")
     lang_entry = tk.Entry(top_frame, textvariable=lang_var, width=6,
-                          bg="#3c3c3c", fg="#e0e0e0", insertbackground="#e0e0e0",
-                          font=("monospace", 10), bd=0, highlightthickness=1,
-                          highlightcolor="#4a6fa5")
+                          bg=BG2, fg=FG, insertbackground=FG,
+                          font=ui_font(11), bd=0, relief="flat",
+                          highlightthickness=1, highlightbackground=BG2,
+                          highlightcolor=ACCENT)
     lang_entry.pack(side="left", padx=(4, 0))
 
     clip_var = tk.BooleanVar(value=clip_mode)
     clip_check = tk.Checkbutton(top_frame, text="clipboard", variable=clip_var,
-                                bg="#2b2b2b", fg="#888", selectcolor="#3c3c3c",
-                                activebackground="#2b2b2b", activeforeground="#e0e0e0",
-                                font=("monospace", 10))
+                                bg=BG, fg=FG_DIM, selectcolor=BG2,
+                                activebackground=BG, activeforeground=FG,
+                                font=ui_font(11), highlightthickness=0)
     clip_check.pack(side="right")
 
-    # Input
-    input_text = tk.Text(root, height=6, bd=0, highlightthickness=1,
-                         highlightcolor="#4a6fa5", wrap="word", **style)
-    input_text.pack(fill="x", padx=8, pady=(4, 4))
+    # Paned window for resizable input/output split
+    paned = tk.PanedWindow(root, orient="vertical", bg=FG_DIM,
+                           sashwidth=4, sashrelief="flat", bd=0,
+                           opaqueresize=True)
+    paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
+
+    text_opts = dict(bg=BG2, fg=FG, insertbackground=FG,
+                     selectbackground=SELECT, selectforeground=FG,
+                     font=text_font(), bd=0, relief="flat",
+                     highlightthickness=0, wrap="word",
+                     padx=10, pady=8)
+
+    # Input pane
+    input_frame = tk.Frame(paned, bg=BG2)
+    input_text = tk.Text(input_frame, **text_opts)
+    input_scroll = tk.Scrollbar(input_frame, command=input_text.yview,
+                                bg=BG2, troughcolor=BG2, highlightthickness=0,
+                                bd=0, width=8)
+    input_text.config(yscrollcommand=input_scroll.set)
+    input_scroll.pack(side="right", fill="y")
+    input_text.pack(fill="both", expand=True)
+    paned.add(input_frame, minsize=60)
+
+    # Output pane
+    output_frame = tk.Frame(paned, bg=BG2)
+    output_text = tk.Text(output_frame, state="disabled", **text_opts)
+    output_scroll = tk.Scrollbar(output_frame, command=output_text.yview,
+                                 bg=BG2, troughcolor=BG2, highlightthickness=0,
+                                 bd=0, width=8)
+    output_text.config(yscrollcommand=output_scroll.set)
+    output_scroll.pack(side="right", fill="y")
+    output_text.pack(fill="both", expand=True)
+    paned.add(output_frame, minsize=60)
 
     # Status bar
-    status_var = tk.StringVar(value="Enter or Ctrl+Enter to translate")
-    status_label = tk.Label(root, textvariable=status_var, bg="#2b2b2b",
-                            fg="#666", font=("monospace", 9), anchor="w")
-    status_label.pack(fill="x", padx=8)
-
-    # Output
-    output_text = tk.Text(root, bd=0, highlightthickness=1,
-                          highlightcolor="#4a6fa5", wrap="word", state="disabled",
-                          **style)
-    output_text.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+    status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
+    status_label = tk.Label(root, textvariable=status_var, bg=BG,
+                            fg=FG_DIM, font=ui_font(10), anchor="w", pady=4)
+    status_label.pack(fill="x", padx=12, side="bottom")
 
     def set_output(text):
         output_text.config(state="normal")
@@ -292,9 +331,9 @@ def gui(fixed_target=None, clip_mode=False):
             font_size[0] = min(font_size[0] + 1, 40)
         else:
             font_size[0] = max(font_size[0] - 1, 8)
-        new_font = ("monospace", font_size[0])
-        input_text.config(font=new_font)
-        output_text.config(font=new_font)
+        f = text_font()
+        input_text.config(font=f)
+        output_text.config(font=f)
         status_var.set(f"font size: {font_size[0]}")
 
     input_text.bind("<Return>", do_translate)
@@ -303,6 +342,13 @@ def gui(fixed_target=None, clip_mode=False):
     root.bind("<Control-Button-4>", zoom)   # Linux scroll up
     root.bind("<Control-Button-5>", zoom)   # Linux scroll down
     root.bind("<Control-MouseWheel>", zoom) # macOS/Windows
+
+    # Set initial sash position after window is drawn
+    def set_sash(_=None):
+        h = paned.winfo_height()
+        if h > 1:
+            paned.sash_place(0, 0, h // 2)
+    root.after(50, set_sash)
 
     input_text.focus_set()
     root.mainloop()
