@@ -209,12 +209,12 @@ def gui(fixed_target=None, clip_mode=False):
     top_frame.pack(fill="x", padx=12)
 
     target_label = tk.Label(top_frame, text="target:", bg=BG, fg=FG_DIM,
-                            font=ui_font(11))
+                            font=ui_font())
     target_label.pack(side="left")
     lang_var = tk.StringVar(value=fixed_target or "auto")
     lang_entry = tk.Entry(top_frame, textvariable=lang_var, width=6,
                           bg=BG2, fg=FG, insertbackground=FG,
-                          font=ui_font(11), bd=0, relief="flat",
+                          font=ui_font(), bd=0, relief="flat",
                           highlightthickness=1, highlightbackground=BG2,
                           highlightcolor=ACCENT)
     lang_entry.pack(side="left", padx=(4, 0))
@@ -223,7 +223,7 @@ def gui(fixed_target=None, clip_mode=False):
     clip_check = tk.Checkbutton(top_frame, text="clipboard", variable=clip_var,
                                 bg=BG, fg=FG_DIM, selectcolor=BG2,
                                 activebackground=BG, activeforeground=FG,
-                                font=ui_font(11), highlightthickness=0)
+                                font=ui_font(), highlightthickness=0)
     clip_check.pack(side="right")
 
     # Paned window for resizable input/output split
