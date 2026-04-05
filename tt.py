@@ -191,7 +191,7 @@ def gui(fixed_target=None, clip_mode=False):
     root.configure(bg=BG)
 
     # Font setup - prefer good CJK fonts
-    font_size = [13]
+    font_size = [16]
     font_family = "monospace"
     for candidate in ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]:
         if candidate in tkfont.families():
@@ -356,7 +356,7 @@ def gui(fixed_target=None, clip_mode=False):
         return "break"
 
     def zoom_reset(_event=None):
-        font_size[0] = 13
+        font_size[0] = 16
         apply_zoom()
         return "break"
 
