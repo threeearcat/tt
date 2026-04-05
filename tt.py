@@ -387,10 +387,8 @@ def main():
     parser.add_argument("--repl", action="store_true", help="interactive REPL mode")
     args = parser.parse_args()
 
-    if args.clip and not args.text and sys.stdin.isatty():
+    if args.clip and not args.text:
         gui(args.target, clip_mode=True)
-    elif args.clip:
-        clip_watch(args.target)
     elif args.text:
         try:
             print(translate_auto(" ".join(args.text), args.target))
@@ -405,6 +403,8 @@ def main():
             except Exception as e:
                 print(f"[error] {e}", file=sys.stderr)
                 sys.exit(1)
+        else:
+            gui(args.target)
     elif args.repl:
         repl(args.target)
     else:
