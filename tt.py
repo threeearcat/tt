@@ -171,7 +171,7 @@ def clip_watch(fixed_target=None):
             break
 
 
-def gui(fixed_target=None):
+def gui(fixed_target=None, clip_mode=False):
     """Tkinter GUI mode."""
     import tkinter as tk
     import threading
@@ -184,7 +184,7 @@ def gui(fixed_target=None):
     style = {"bg": "#2b2b2b", "fg": "#e0e0e0", "insertbackground": "#e0e0e0",
              "selectbackground": "#4a6fa5", "font": ("monospace", 12)}
 
-    # Target language selector
+    # Target language selector + clip toggle
     top_frame = tk.Frame(root, bg="#2b2b2b")
     top_frame.pack(fill="x", padx=8, pady=(8, 4))
 
@@ -196,6 +196,13 @@ def gui(fixed_target=None):
                           font=("monospace", 10), bd=0, highlightthickness=1,
                           highlightcolor="#4a6fa5")
     lang_entry.pack(side="left", padx=(4, 0))
+
+    clip_var = tk.BooleanVar(value=clip_mode)
+    clip_check = tk.Checkbutton(top_frame, text="clipboard", variable=clip_var,
+                                bg="#2b2b2b", fg="#888", selectcolor="#3c3c3c",
+                                activebackground="#2b2b2b", activeforeground="#e0e0e0",
+                                font=("monospace", 10))
+    clip_check.pack(side="right")
 
     # Input
     input_text = tk.Text(root, height=6, bd=0, highlightthickness=1,
@@ -220,12 +227,15 @@ def gui(fixed_target=None):
         output_text.insert("1.0", text)
         output_text.config(state="disabled")
 
+    def get_target():
+        lang = lang_var.get().strip()
+        return lang if lang and lang != "auto" else None
+
     def do_translate(_event=None):
         text = input_text.get("1.0", "end").strip()
         if not text:
             return "break"
-        lang = lang_var.get().strip()
-        target = lang if lang and lang != "auto" else None
+        target = get_target()
         status_var.set("translating...")
 
         def run():
@@ -239,6 +249,38 @@ def gui(fixed_target=None):
 
         threading.Thread(target=run, daemon=True).start()
         return "break"
+
+    # Clipboard monitoring
+    prev_clip = [get_clipboard() if clip_mode else ""]
+
+    def poll_clipboard():
+        if not clip_var.get():
+            prev_clip[0] = ""
+            root.after(500, poll_clipboard)
+            return
+        current = get_clipboard()
+        if current and current != prev_clip[0]:
+            prev_clip[0] = current
+            text = current.strip()
+            if text:
+                input_text.delete("1.0", "end")
+                input_text.insert("1.0", text)
+                target = get_target()
+                status_var.set("clipboard → translating...")
+
+                def run():
+                    try:
+                        result = translate_auto(text, target)
+                        root.after(0, lambda: set_output(result))
+                        root.after(0, lambda: status_var.set("clipboard → done"))
+                    except Exception as e:
+                        root.after(0, lambda: set_output(f"[error] {e}"))
+                        root.after(0, lambda: status_var.set("clipboard → error"))
+
+                threading.Thread(target=run, daemon=True).start()
+        root.after(500, poll_clipboard)
+
+    root.after(500, poll_clipboard)
 
     input_text.bind("<Return>", do_translate)
     input_text.bind("<Control-Return>", do_translate)
@@ -259,7 +301,9 @@ def main():
     parser.add_argument("--repl", action="store_true", help="interactive REPL mode")
     args = parser.parse_args()
 
-    if args.clip:
+    if args.clip and not args.text and sys.stdin.isatty():
+        gui(args.target, clip_mode=True)
+    elif args.clip:
         clip_watch(args.target)
     elif args.text:
         try:
