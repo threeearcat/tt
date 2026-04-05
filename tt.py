@@ -208,8 +208,9 @@ def gui(fixed_target=None, clip_mode=False):
     top_frame = tk.Frame(root, bg=BG, pady=6)
     top_frame.pack(fill="x", padx=12)
 
-    tk.Label(top_frame, text="target:", bg=BG, fg=FG_DIM,
-             font=ui_font(11)).pack(side="left")
+    target_label = tk.Label(top_frame, text="target:", bg=BG, fg=FG_DIM,
+                            font=ui_font(11))
+    target_label.pack(side="left")
     lang_var = tk.StringVar(value=fixed_target or "auto")
     lang_entry = tk.Entry(top_frame, textvariable=lang_var, width=6,
                           bg=BG2, fg=FG, insertbackground=FG,
@@ -328,8 +329,13 @@ def gui(fixed_target=None, clip_mode=False):
 
     def apply_zoom():
         f = text_font()
+        uf = ui_font()
         input_text.config(font=f)
         output_text.config(font=f)
+        target_label.config(font=uf)
+        lang_entry.config(font=uf)
+        clip_check.config(font=uf)
+        status_label.config(font=ui_font(max(font_size[0] - 3, 8)))
         status_var.set(f"font size: {font_size[0]}")
 
     def zoom(event):
