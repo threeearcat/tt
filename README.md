@@ -4,11 +4,14 @@ A fast, simple terminal translator using Google Translate. No API key required.
 
 ## Features
 
+- **GUI mode**: Tkinter-based GUI with dark theme (default)
 - **Auto-toggle**: Korean input → English, otherwise → Korean
-- **REPL mode**: Interactive translation with readline support (history, line editing)
-- **Clipboard monitoring**: Watch clipboard and auto-translate new content
+- **Clipboard monitoring**: Watch clipboard and auto-translate (GUI checkbox or `--clip`)
+- **REPL mode**: Interactive translation with readline support (`--repl`)
+- **Pipe support**: `echo "hello" | tt`
+- **Font zoom**: Ctrl+scroll to resize text in GUI
 - **Cross-platform**: macOS and Linux
-- **Zero dependencies**: Python 3 stdlib only
+- **Zero dependencies**: Python 3 stdlib only (tkinter)
 
 ## Install
 
@@ -20,21 +23,23 @@ ln -s $(pwd)/tt/tt.py ~/.local/bin/tt
 ## Usage
 
 ```bash
+# GUI (default)
+tt                          # opens GUI window
+tt --clip                   # GUI with clipboard monitoring enabled
+
 # Single translation
 tt "hello"                  # → 안녕하세요
 tt "안녕하세요"               # → hello (auto-toggle)
 tt -t ja "hello"            # → こんにちは (specify target)
 
+# Pipe
+echo "hello" | tt           # → 안녕하세요
+
 # Interactive REPL
-tt
+tt --repl
 > hello
 안녕하세요
-> 안녕하세요
-hello
 > :q
-
-# Clipboard monitoring
-tt --clip                   # translates whenever you copy text
 ```
 
 ## Options
@@ -42,10 +47,19 @@ tt --clip                   # translates whenever you copy text
 | Flag | Description |
 |------|-------------|
 | `-t`, `--target` | Target language code (default: auto-toggle ko/en) |
-| `--clip` | Clipboard monitoring mode |
+| `--clip` | Clipboard monitoring mode (GUI with auto-translate) |
+| `--repl` | Interactive REPL mode |
+
+## GUI Shortcuts
+
+| Key | Action |
+|-----|--------|
+| Enter | Translate |
+| Shift+Enter | New line |
+| Ctrl+Scroll | Zoom in/out |
 
 ## Requirements
 
-- Python 3
-- `xclip` (Linux, for `--clip` mode)
-- `pbpaste` (macOS, for `--clip` mode, built-in)
+- Python 3 with tkinter
+- `xclip` (Linux, for clipboard features)
+- `pbpaste` (macOS, for clipboard features, built-in)
