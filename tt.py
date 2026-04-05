@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -u
 """tt - Terminal Translator using Google Translate."""
 
 import argparse
