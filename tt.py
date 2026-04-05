@@ -187,7 +187,7 @@ def gui(fixed_target=None, clip_mode=False):
     root = tk.Tk()
     root.title("tt")
     root.geometry("700x500")
-    root.minsize(400, 300)
+    root.minsize(300, 100)
     root.configure(bg=BG)
 
     # Font setup - prefer good CJK fonts
