@@ -181,8 +181,13 @@ def gui(fixed_target=None, clip_mode=False):
     root.geometry("600x400")
     root.configure(bg="#2b2b2b")
 
-    style = {"bg": "#2b2b2b", "fg": "#e0e0e0", "insertbackground": "#e0e0e0",
-             "selectbackground": "#4a6fa5", "font": ("monospace", 12)}
+    font_size = [14]
+
+    def make_style():
+        return {"bg": "#2b2b2b", "fg": "#e0e0e0", "insertbackground": "#e0e0e0",
+                "selectbackground": "#4a6fa5", "font": ("monospace", font_size[0])}
+
+    style = make_style()
 
     # Target language selector + clip toggle
     top_frame = tk.Frame(root, bg="#2b2b2b")
@@ -282,9 +287,22 @@ def gui(fixed_target=None, clip_mode=False):
 
     root.after(500, poll_clipboard)
 
+    def zoom(event):
+        if event.delta > 0 or event.num == 4:
+            font_size[0] = min(font_size[0] + 1, 40)
+        else:
+            font_size[0] = max(font_size[0] - 1, 8)
+        new_font = ("monospace", font_size[0])
+        input_text.config(font=new_font)
+        output_text.config(font=new_font)
+        status_var.set(f"font size: {font_size[0]}")
+
     input_text.bind("<Return>", do_translate)
     input_text.bind("<Control-Return>", do_translate)
     input_text.bind("<Shift-Return>", lambda e: None)  # allow newline
+    root.bind("<Control-Button-4>", zoom)   # Linux scroll up
+    root.bind("<Control-Button-5>", zoom)   # Linux scroll down
+    root.bind("<Control-MouseWheel>", zoom) # macOS/Windows
 
     input_text.focus_set()
     root.mainloop()
