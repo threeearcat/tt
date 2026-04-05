@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import platform
 import readline  # noqa: F401 - enables input() line editing
 import subprocess
@@ -78,6 +79,26 @@ def repl(fixed_target=None):
             print(f"[error] {e}", file=sys.stderr)
 
 
+def _ensure_display():
+    """Set DISPLAY for xclip if not already set (e.g. in tmux/tty sessions)."""
+    if platform.system() != "Linux" or os.environ.get("DISPLAY"):
+        return
+    # Find active X display from Xorg process
+    try:
+        out = subprocess.run(
+            ["pgrep", "-a", "Xorg"], capture_output=True, text=True, timeout=2
+        ).stdout
+        for line in out.splitlines():
+            for token in line.split():
+                if token.startswith(":"):
+                    os.environ["DISPLAY"] = token.split()[0]
+                    return
+        # Fallback
+        os.environ["DISPLAY"] = ":0"
+    except Exception:
+        os.environ["DISPLAY"] = ":0"
+
+
 def get_clipboard():
     """Read clipboard content. Supports macOS and Linux."""
     system = platform.system()
@@ -87,6 +108,7 @@ def get_clipboard():
                 ["pbpaste"], capture_output=True, text=True, timeout=2
             ).stdout
         else:
+            _ensure_display()
             return subprocess.run(
                 ["xclip", "-selection", "clipboard", "-o"],
                 capture_output=True, text=True, timeout=2
