@@ -6,9 +6,11 @@ import json
 import os
 import platform
 import readline  # noqa: F401 - enables input() line editing
+import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -38,8 +40,20 @@ def translate(text, target="ko", source="auto"):
             translated = "".join(part[0] for part in data[0] if part[0])
             detected = data[2] if len(data) > 2 else source
             return translated, detected
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                raise RuntimeError("rate limited by Google Translate, try again later") from e
+            raise RuntimeError(f"HTTP {e.code} from Google Translate") from e
+        except urllib.error.URLError as e:
+            last_err = RuntimeError(f"network error: {e.reason}")
+            time.sleep(0.3)
+        except socket.timeout:
+            last_err = RuntimeError("request timed out")
+            time.sleep(0.3)
+        except (json.JSONDecodeError, IndexError, TypeError) as e:
+            raise RuntimeError("unexpected response from Google Translate") from e
         except Exception as e:
-            last_err = e
+            last_err = RuntimeError(f"translation failed: {e}")
             time.sleep(0.3)
     raise last_err
 
