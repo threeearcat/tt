@@ -365,12 +365,13 @@ def gui(fixed_target=None, clip_mode=False):
     root.bind("<Control-minus>", zoom_out)
     root.bind("<Control-0>", zoom_reset)
 
-    # Set initial sash position after window is drawn
+    # Keep sash at 50% on resize
     def set_sash(_=None):
         h = paned.winfo_height()
         if h > 1:
             paned.sash_place(0, 0, h // 2)
     root.after(50, set_sash)
+    paned.bind("<Configure>", set_sash)
 
     input_text.focus_set()
     root.mainloop()
