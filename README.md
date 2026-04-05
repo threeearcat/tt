@@ -57,6 +57,8 @@ tt --repl
 | Enter | Translate |
 | Shift+Enter | New line |
 | Ctrl+Scroll | Zoom in/out |
+| Ctrl++/Ctrl+- | Zoom in/out |
+| Ctrl+0 | Reset zoom |
 
 ## Requirements
 
