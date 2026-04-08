@@ -57,6 +57,26 @@ tt --repl
 
 Theme can also be changed live from the dropdown in the GUI.
 
+## Config
+
+Optional config file at `~/.config/tt/config.json`. If absent, defaults are used. CLI flags override config values.
+
+```json
+{
+  "theme": "nord",
+  "font_size": 18,
+  "target": "ko",
+  "font_family": "JetBrains Mono"
+}
+```
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `theme` | Color theme | `gruvbox-dark` |
+| `font_size` | GUI font size | `20` |
+| `target` | Target language | auto-toggle ko/en |
+| `font_family` | Preferred font family | auto-detect |
+
 ## GUI Shortcuts
 
 | Key | Action |

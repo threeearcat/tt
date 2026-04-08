@@ -70,6 +70,17 @@ THEMES = {
     },
 }
 DEFAULT_THEME = "gruvbox-dark"
+DEFAULT_FONT_SIZE = 20
+CONFIG_PATH = os.path.expanduser("~/.config/tt/config.json")
+
+
+def load_config():
+    """Load config from ~/.config/tt/config.json. Returns {} if not found."""
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 def translate(text, target="ko", source="auto"):
@@ -223,13 +234,15 @@ def clip_watch(fixed_target=None):
             break
 
 
-def gui(fixed_target=None, clip_mode=False, theme_name=None):
+def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
     """Tkinter GUI mode."""
     import tkinter as tk
     import tkinter.font as tkfont
     import threading
 
-    theme = [THEMES.get(theme_name or DEFAULT_THEME, THEMES[DEFAULT_THEME])]
+    config = config or {}
+    effective_theme = theme_name or config.get("theme", DEFAULT_THEME)
+    theme = [THEMES.get(effective_theme, THEMES[DEFAULT_THEME])]
     BG = theme[0]["bg"]
     BG2 = theme[0]["bg2"]
     FG = theme[0]["fg"]
@@ -244,9 +257,12 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None):
     root.configure(bg=BG)
 
     # Font setup - prefer good CJK fonts
-    font_size = [20]
+    font_size = [config.get("font_size", DEFAULT_FONT_SIZE)]
     font_family = "monospace"
-    for candidate in ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]:
+    candidates = ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]
+    if "font_family" in config:
+        candidates.insert(0, config["font_family"])
+    for candidate in candidates:
         if candidate in tkfont.families():
             font_family = candidate
             break
@@ -417,7 +433,7 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None):
         return "break"
 
     def zoom_reset(_event=None):
-        font_size[0] = 20
+        font_size[0] = config.get("font_size", DEFAULT_FONT_SIZE)
         apply_zoom()
         return "break"
 
@@ -472,6 +488,8 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None):
 
 
 def main():
+    config = load_config()
+
     parser = argparse.ArgumentParser(
         description="tt - Terminal Translator",
         usage="tt [text] | tt --clip | tt --repl | tt -t <lang> [text]",
@@ -485,11 +503,13 @@ def main():
                         help=f"color theme (default: {DEFAULT_THEME})")
     args = parser.parse_args()
 
+    target = args.target or config.get("target")
+
     if args.clip and not args.text:
-        gui(args.target, clip_mode=True, theme_name=args.theme)
+        gui(target, clip_mode=True, theme_name=args.theme, config=config)
     elif args.text:
         try:
-            print(translate_auto(" ".join(args.text), args.target))
+            print(translate_auto(" ".join(args.text), target))
         except Exception as e:
             print(f"[error] {e}", file=sys.stderr)
             sys.exit(1)
@@ -497,16 +517,16 @@ def main():
         text = sys.stdin.read().strip()
         if text:
             try:
-                print(translate_auto(text, args.target))
+                print(translate_auto(text, target))
             except Exception as e:
                 print(f"[error] {e}", file=sys.stderr)
                 sys.exit(1)
         else:
-            gui(args.target, theme_name=args.theme)
+            gui(target, theme_name=args.theme, config=config)
     elif args.repl:
-        repl(args.target)
+        repl(target)
     else:
-        gui(args.target, theme_name=args.theme)
+        gui(target, theme_name=args.theme, config=config)
 
 
 if __name__ == "__main__":
