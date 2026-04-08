@@ -150,6 +150,55 @@ THEMES = {
 DEFAULT_THEME = "gruvbox-dark"
 DEFAULT_FONT_SIZE = 20
 
+# Configurable keybindings: action → default tk key sequence
+DEFAULT_KEYBINDINGS = {
+    "clear": "<Control-l>",
+    "clipboard": "<Control-d>",
+    "settings": "<Control-comma>",
+    "select_all": "<Control-a>",
+}
+
+
+def _key_to_display(tk_key):
+    """Convert tk key like '<Control-l>' to display like 'Ctrl+L'."""
+    s = tk_key.strip("<>")
+    parts = s.split("-")
+    display = []
+    for p in parts:
+        if p == "Control":
+            display.append("Ctrl")
+        elif p == "Shift":
+            display.append("Shift")
+        elif p == "Alt":
+            display.append("Alt")
+        elif p == "comma":
+            display.append(",")
+        elif p == "plus":
+            display.append("+")
+        elif p == "minus":
+            display.append("-")
+        else:
+            display.append(p.upper() if len(p) == 1 else p)
+    return "+".join(display)
+
+
+def _event_to_tk_key(event):
+    """Convert a tk KeyPress event to a tk key sequence string."""
+    parts = []
+    if event.state & 0x4:
+        parts.append("Control")
+    if event.state & 0x1:
+        parts.append("Shift")
+    if event.state & 0x8:
+        parts.append("Alt")
+    sym = event.keysym
+    # Ignore bare modifier keys
+    if sym in ("Control_L", "Control_R", "Shift_L", "Shift_R",
+               "Alt_L", "Alt_R", "Meta_L", "Meta_R", "Super_L", "Super_R"):
+        return None
+    parts.append(sym.lower() if len(sym) == 1 else sym)
+    return "<" + "-".join(parts) + ">"
+
 
 def load_config():
     """Load config from ~/.config/tt/config.json. Returns {} if not found."""
@@ -325,6 +374,11 @@ class TranslatorGUI:
         self.font_size = self.config.get("font_size", DEFAULT_FONT_SIZE)
         self.dict_mode = dict_mode
 
+        # Load keybindings
+        saved_kb = self.config.get("keybindings", {})
+        self.keybindings = dict(DEFAULT_KEYBINDINGS)
+        self.keybindings.update(saved_kb)
+
         clip_mode = clip_mode or self.config.get("clipboard", False)
         self._split = self.config.get("split", "vertical")
         self._sash_frac = self.config.get("sash_frac", 0.5)
@@ -369,6 +423,13 @@ class TranslatorGUI:
         cfg["geometry"] = self.root.geometry()
         cfg["clipboard"] = self.clip_var.get()
         cfg["split"] = self.split_var.get()
+        # Only save non-default keybindings
+        custom_kb = {k: v for k, v in self.keybindings.items()
+                     if v != DEFAULT_KEYBINDINGS.get(k)}
+        if custom_kb:
+            cfg["keybindings"] = custom_kb
+        else:
+            cfg.pop("keybindings", None)
         try:
             coord = self.paned.sash_coord(0)
             if self.split_var.get() == "horizontal":
@@ -482,8 +543,9 @@ class TranslatorGUI:
         self.input_text.bind("<Return>", self._do_translate)
         self.input_text.bind("<Control-Return>", self._do_translate)
         self.input_text.bind("<Shift-Return>", lambda e: None)
-        self.input_text.bind("<Control-a>", self._select_all)
-        self.input_text.bind("<Control-l>", self._clear)
+        # Re-apply configurable bindings for input_text
+        if hasattr(self, '_bound_keys'):
+            self._apply_keybindings()
         self.input_text.focus_set()
 
         # Apply theme and restore sash
@@ -501,6 +563,7 @@ class TranslatorGUI:
         self.root.after(100, _set_sash)
 
     def _bind_events(self):
+        # Fixed bindings (not configurable)
         self.root.bind("<Control-Button-4>", self._zoom)
         self.root.bind("<Control-Button-5>", self._zoom)
         self.root.bind("<Control-MouseWheel>", self._zoom)
@@ -508,16 +571,51 @@ class TranslatorGUI:
         self.root.bind("<Control-equal>", self._zoom_in)
         self.root.bind("<Control-minus>", self._zoom_out)
         self.root.bind("<Control-0>", self._zoom_reset)
-        self.root.bind("<Control-comma>", self._open_settings)
         self.settings_btn.bind("<Button-1>", self._open_settings)
         self.clear_btn.bind("<Button-1>", self._clear)
         self.clip_label.bind("<Button-1>", lambda e: self._toggle_clip())
-        self.root.bind("<Control-d>", lambda e: self._toggle_clip())
-        self.root.bind("<Control-l>", self._clear)
         self.theme_var.trace_add("write", self.apply_theme)
         self.split_var.trace_add("write", lambda *_: self._build_paned(
             self.split_var.get(), 0.5))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Configurable bindings
+        self._bound_keys = {}
+        self._apply_keybindings()
+
+    def _get_action_handler(self, action):
+        """Return the handler for a keybinding action."""
+        handlers = {
+            "clear": self._clear,
+            "clipboard": lambda e=None: self._toggle_clip(),
+            "settings": self._open_settings,
+            "select_all": self._select_all,
+        }
+        return handlers.get(action)
+
+    def _apply_keybindings(self):
+        """Unbind old keys, bind new ones from self.keybindings."""
+        # Unbind previous
+        for key, (widget, _) in self._bound_keys.items():
+            try:
+                widget.unbind(key)
+            except Exception:
+                pass
+        self._bound_keys = {}
+
+        # Bind new
+        input_actions = {"select_all"}
+        for action, key in self.keybindings.items():
+            handler = self._get_action_handler(action)
+            if not handler:
+                continue
+            # Some actions bind on input_text, others on root
+            if action in input_actions:
+                self.input_text.bind(key, handler)
+                self._bound_keys[key] = (self.input_text, action)
+            else:
+                self.root.bind(key, handler)
+                self._bound_keys[key] = (self.root, action)
 
     def _update_clip_label(self):
         on = self.clip_var.get()
@@ -550,8 +648,8 @@ class TranslatorGUI:
         win = tk.Toplevel(self.root)
         self._settings_win = win
         win.title("tt — settings")
-        win.geometry("420x420")
-        win.minsize(350, 300)
+        win.geometry("460x500")
+        win.minsize(400, 400)
         win.configure(bg=t["bg"])
         win.transient(self.root)
         win.lift()
@@ -559,10 +657,48 @@ class TranslatorGUI:
 
         sf = self.small_font()
         uf = self.ui_font()
-        pad = dict(padx=20, pady=(12, 0))
+        pad = dict(padx=20, pady=(10, 0))
 
-        def make_row():
-            f = tk.Frame(win, bg=t["bg"])
+        entry_opts = dict(bg=t["bg2"], fg=t["fg"], insertbackground=t["fg"],
+                          font=uf, bd=0, relief="flat", highlightthickness=1,
+                          highlightbackground=t["bg2"], highlightcolor=t["accent"])
+        menu_opts = dict(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
+                         highlightthickness=0, activebackground=t["bg2"],
+                         activeforeground=t["fg"])
+        submenu_opts = dict(bg=t["bg2"], fg=t["fg"], font=uf,
+                            activebackground=t["accent"],
+                            activeforeground=t["fg"], bd=0)
+
+        # --- Tab bar ---
+        tab_bar = tk.Frame(win, bg=t["bg"])
+        tab_bar.pack(fill="x", padx=20, pady=(12, 0))
+
+        pages = {}
+        tab_labels = {}
+        active_tab = [None]
+
+        def switch_tab(name):
+            if active_tab[0] == name:
+                return
+            if active_tab[0]:
+                pages[active_tab[0]].pack_forget()
+                tab_labels[active_tab[0]].configure(fg=t["fg_dim"])
+            pages[name].pack(fill="both", expand=True)
+            tab_labels[name].configure(fg=t["accent"])
+            active_tab[0] = name
+
+        for tab_name in ("General", "Shortcuts", "API"):
+            lbl = tk.Label(tab_bar, text=tab_name, bg=t["bg"], fg=t["fg_dim"],
+                           font=uf, cursor="hand2", padx=8)
+            lbl.pack(side="left")
+            lbl.bind("<Button-1>", lambda e, n=tab_name: switch_tab(n))
+            tab_labels[tab_name] = lbl
+
+        tk.Frame(win, bg=t["fg_dim"], height=1).pack(fill="x", padx=20, pady=(6, 0))
+
+        # Helper for rows inside a page
+        def make_row(parent):
+            f = tk.Frame(parent, bg=t["bg"])
             f.pack(fill="x", **pad)
             return f
 
@@ -570,19 +706,20 @@ class TranslatorGUI:
             return tk.Label(parent, text=text, bg=t["bg"], fg=t["fg_dim"],
                             font=sf, anchor="w")
 
+        # ===== General tab =====
+        general_page = tk.Frame(win, bg=t["bg"])
+        pages["General"] = general_page
+
         # Theme
-        row = make_row()
+        row = make_row(general_page)
         make_label(row, "THEME").pack(side="left")
         tm = tk.OptionMenu(row, self.theme_var, *THEMES.keys())
-        tm.config(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
-                  highlightthickness=0, activebackground=t["bg2"],
-                  activeforeground=t["fg"])
-        tm["menu"].config(bg=t["bg2"], fg=t["fg"], font=uf,
-                          activebackground=t["accent"], activeforeground=t["fg"], bd=0)
+        tm.config(**menu_opts)
+        tm["menu"].config(**submenu_opts)
         tm.pack(side="right")
 
         # Font size
-        row = make_row()
+        row = make_row(general_page)
         make_label(row, "FONT SIZE").pack(side="left")
         fs_var = tk.IntVar(value=self.font_size)
 
@@ -606,31 +743,22 @@ class TranslatorGUI:
         fs_var.trace_add("write", on_fs_change)
 
         # Target language
-        row = make_row()
+        row = make_row(general_page)
         make_label(row, "TARGET LANGUAGE").pack(side="left")
-        te = tk.Entry(row, textvariable=self.lang_var, width=6,
-                      bg=t["bg2"], fg=t["fg"], insertbackground=t["fg"],
-                      font=uf, bd=0, relief="flat",
-                      highlightthickness=1, highlightbackground=t["bg2"],
-                      highlightcolor=t["accent"])
+        te = tk.Entry(row, textvariable=self.lang_var, width=6, **entry_opts)
         te.pack(side="right")
 
         # Dictionary mode
-        if MW_KEY:
-            row = make_row()
-            make_label(row, "DICTIONARY").pack(side="left")
-            dm = tk.OptionMenu(row, self.dict_var, "both", "dict", "off")
-            dm.config(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
-                      highlightthickness=0, activebackground=t["bg2"],
-                      activeforeground=t["fg"])
-            dm["menu"].config(bg=t["bg2"], fg=t["fg"], font=uf,
-                              activebackground=t["accent"],
-                              activeforeground=t["fg"], bd=0)
-            dm.pack(side="right")
+        row = make_row(general_page)
+        make_label(row, "DICTIONARY").pack(side="left")
+        dm = tk.OptionMenu(row, self.dict_var, "both", "dict", "off")
+        dm.config(**menu_opts)
+        dm["menu"].config(**submenu_opts)
+        dm.pack(side="right")
 
         # Clipboard
-        row = make_row()
-        make_label(row, "CLIPBOARD (Ctrl+D)").pack(side="left")
+        row = make_row(general_page)
+        make_label(row, "CLIPBOARD").pack(side="left")
         cc = tk.Checkbutton(row, variable=self.clip_var,
                             bg=t["bg"], selectcolor=t["bg2"],
                             activebackground=t["bg"], highlightthickness=0,
@@ -638,28 +766,133 @@ class TranslatorGUI:
         cc.pack(side="right")
 
         # Split orientation
-        row = make_row()
+        row = make_row(general_page)
         make_label(row, "SPLIT").pack(side="left")
         sp = tk.OptionMenu(row, self.split_var, "vertical", "horizontal")
-        sp.config(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
-                  highlightthickness=0, activebackground=t["bg2"],
-                  activeforeground=t["fg"])
-        sp["menu"].config(bg=t["bg2"], fg=t["fg"], font=uf,
-                          activebackground=t["accent"], activeforeground=t["fg"], bd=0)
+        sp.config(**menu_opts)
+        sp["menu"].config(**submenu_opts)
         sp.pack(side="right")
 
-        # Separator + config path
-        tk.Frame(win, bg=t["fg_dim"], height=1).pack(fill="x", padx=20, pady=(20, 0))
-        tk.Label(win, text=f"config: {CONFIG_PATH}", bg=t["bg"],
-                 fg=t["fg_dim"], font=sf, anchor="w").pack(
-                     fill="x", padx=20, pady=(8, 10))
+        # ===== Shortcuts tab =====
+        shortcuts_page = tk.Frame(win, bg=t["bg"])
+        pages["Shortcuts"] = shortcuts_page
+
+        # Editable shortcuts
+        editable = [
+            ("clear", "Clear"),
+            ("select_all", "Select all"),
+            ("clipboard", "Clipboard toggle"),
+            ("settings", "Settings"),
+        ]
+        capturing = [None]  # (action, label_widget)
+
+        def start_capture(action, lbl):
+            if capturing[0]:
+                # Cancel previous capture
+                old_action, old_lbl = capturing[0]
+                old_lbl.configure(fg=t["fg"], text=_key_to_display(
+                    self.keybindings[old_action]))
+            capturing[0] = (action, lbl)
+            lbl.configure(fg=t["accent"], text="press key...")
+            win.focus_set()
+
+        def on_key_capture(event):
+            if not capturing[0]:
+                return
+            tk_key = _event_to_tk_key(event)
+            if tk_key is None:
+                return  # ignore bare modifier
+            action, lbl = capturing[0]
+            capturing[0] = None
+            self.keybindings[action] = tk_key
+            lbl.configure(fg=t["fg"], text=_key_to_display(tk_key))
+            self._apply_keybindings()
+
+        win.bind("<KeyPress>", on_key_capture)
+
+        for action, display_name in editable:
+            row = make_row(shortcuts_page)
+            make_label(row, display_name.upper()).pack(side="left")
+            key_lbl = tk.Label(row, text=_key_to_display(self.keybindings[action]),
+                               bg=t["bg"], fg=t["fg"], font=uf, anchor="e",
+                               cursor="hand2")
+            key_lbl.pack(side="right")
+            key_lbl.bind("<Button-1>",
+                         lambda e, a=action, l=key_lbl: start_capture(a, l))
+
+        # Fixed shortcuts (not editable)
+        tk.Frame(shortcuts_page, bg=t["fg_dim"], height=1).pack(
+            fill="x", padx=20, pady=(14, 0))
+        make_label(shortcuts_page, "  FIXED").pack(
+            anchor="w", padx=20, pady=(6, 0))
+        fixed = [
+            ("Translate", "Enter"),
+            ("Newline", "Shift+Enter"),
+            ("Zoom in/out", "Ctrl++/- / Scroll"),
+            ("Zoom reset", "Ctrl+0"),
+        ]
+        for action, key in fixed:
+            row = make_row(shortcuts_page)
+            make_label(row, action.upper()).pack(side="left")
+            tk.Label(row, text=key, bg=t["bg"], fg=t["fg_dim"],
+                     font=uf, anchor="e").pack(side="right")
+
+        # ===== API tab =====
+        api_page = tk.Frame(win, bg=t["bg"])
+        pages["API"] = api_page
+
+        row = make_row(api_page)
+        make_label(row, "MERRIAM-WEBSTER API KEY").pack(side="left", fill="x")
+
+        key_frame = make_row(api_page)
+        mw_var = tk.StringVar(value=MW_KEY or "")
+        key_entry = tk.Entry(key_frame, textvariable=mw_var, show="●",
+                             width=30, **entry_opts)
+        key_entry.pack(side="left", fill="x", expand=True)
+
+        showing = [False]
+
+        def toggle_show():
+            showing[0] = not showing[0]
+            key_entry.configure(show="" if showing[0] else "●")
+            eye_btn.configure(text="hide" if showing[0] else "show")
+
+        eye_btn = tk.Label(key_frame, text="show", bg=t["bg"], fg=t["accent"],
+                           font=sf, cursor="hand2", padx=6)
+        eye_btn.pack(side="right")
+        eye_btn.bind("<Button-1>", lambda e: toggle_show())
+
+        hint = tk.Label(api_page, text="Get a free key at dictionaryapi.com",
+                        bg=t["bg"], fg=t["fg_dim"], font=sf, anchor="w")
+        hint.pack(fill="x", padx=20, pady=(6, 0))
+
+        # --- Footer ---
+        footer = tk.Frame(win, bg=t["bg"])
+        footer.pack(fill="x", side="bottom", padx=20, pady=(0, 10))
+        tk.Frame(footer, bg=t["fg_dim"], height=1).pack(fill="x", pady=(0, 6))
+        tk.Label(footer, text=f"config: {CONFIG_PATH}", bg=t["bg"],
+                 fg=t["fg_dim"], font=sf, anchor="w").pack(fill="x")
+
+        # Show first tab
+        switch_tab("General")
 
         def on_close():
+            global MW_KEY
             try:
                 self.font_size = fs_var.get()
             except Exception:
                 pass
             self._apply_zoom(show_status=False)
+            # Save API key if changed
+            new_key = mw_var.get().strip()
+            if new_key != (MW_KEY or ""):
+                MW_KEY = new_key if new_key else None
+                cfg = load_config()
+                if new_key:
+                    cfg["mw_api_key"] = new_key
+                else:
+                    cfg.pop("mw_api_key", None)
+                save_config(cfg)
             win.destroy()
             self._settings_win = None
 
