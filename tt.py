@@ -423,9 +423,10 @@ class TranslatorGUI:
                                   highlightbackground=bg2, highlightcolor=accent, font=uf)
         self.clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
                                   activebackground=bg, activeforeground=fg, font=uf)
-        self.theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2, activeforeground=fg)
+        self.theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2,
+                                  activeforeground=fg, font=uf)
         self.theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
-                                          activeforeground=fg)
+                                          activeforeground=fg, font=uf)
         for w in (self.input_text, self.output_text):
             w.configure(bg=bg2, fg=fg, insertbackground=fg,
                         selectbackground=select, selectforeground=fg, font=f)
