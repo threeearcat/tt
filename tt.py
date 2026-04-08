@@ -210,229 +210,241 @@ def get_clipboard():
         return ""
 
 
-def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
-    """Tkinter GUI mode."""
-    import tkinter as tk
-    import tkinter.font as tkfont
-    import threading
+class TranslatorGUI:
+    """Tkinter GUI for tt."""
 
-    config = config or {}
-    effective_theme = theme_name or config.get("theme", DEFAULT_THEME)
-    theme = THEMES.get(effective_theme, THEMES[DEFAULT_THEME])
+    def __init__(self, fixed_target=None, clip_mode=False, theme_name=None, config=None):
+        import tkinter as tk
+        import tkinter.font as tkfont
 
-    root = tk.Tk()
-    root.title("tt")
-    root.geometry("700x500")
-    root.minsize(300, 100)
+        self.tk = tk
+        self.config = config or {}
+        effective_theme = theme_name or self.config.get("theme", DEFAULT_THEME)
+        self.theme = THEMES.get(effective_theme, THEMES[DEFAULT_THEME])
+        self.font_size = self.config.get("font_size", DEFAULT_FONT_SIZE)
 
-    # Font setup - prefer good CJK fonts
-    font_size = config.get("font_size", DEFAULT_FONT_SIZE)
-    font_family = "monospace"
-    candidates = ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]
-    if "font_family" in config:
-        candidates.insert(0, config["font_family"])
-    for candidate in candidates:
-        if candidate in tkfont.families():
-            font_family = candidate
-            break
+        self.root = tk.Tk()
+        self.root.title("tt")
+        self.root.geometry("700x500")
+        self.root.minsize(300, 100)
 
-    def text_font():
-        return (font_family, font_size)
+        # Font setup
+        self.font_family = "monospace"
+        candidates = ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]
+        if "font_family" in self.config:
+            candidates.insert(0, self.config["font_family"])
+        for candidate in candidates:
+            if candidate in tkfont.families():
+                self.font_family = candidate
+                break
 
-    def ui_font(size=0):
-        return (font_family, size or max(font_size - 2, 9))
+        self._create_widgets(fixed_target, clip_mode, effective_theme)
+        self._bind_events()
+        self.apply_theme()
 
-    # Top bar
-    top_frame = tk.Frame(root, pady=6)
-    top_frame.pack(fill="x", padx=12)
+        # Start clipboard polling
+        self._prev_clip = get_clipboard() if clip_mode else ""
+        self.root.after(500, self._poll_clipboard)
 
-    target_label = tk.Label(top_frame, text="target:")
-    target_label.pack(side="left")
-    lang_var = tk.StringVar(value=fixed_target or "auto")
-    lang_entry = tk.Entry(top_frame, textvariable=lang_var, width=6,
-                          bd=0, relief="flat", highlightthickness=1)
-    lang_entry.pack(side="left", padx=(4, 0))
+    def text_font(self):
+        return (self.font_family, self.font_size)
 
-    clip_var = tk.BooleanVar(value=clip_mode)
-    clip_check = tk.Checkbutton(top_frame, text="clipboard", variable=clip_var,
-                                highlightthickness=0)
-    clip_check.pack(side="right")
+    def ui_font(self, size=0):
+        return (self.font_family, size or max(self.font_size - 2, 9))
 
-    theme_var = tk.StringVar(value=effective_theme)
-    theme_menu = tk.OptionMenu(top_frame, theme_var, *THEMES.keys())
-    theme_menu.config(bd=0, relief="flat", highlightthickness=0)
-    theme_menu["menu"].config(bd=0)
-    theme_menu.pack(side="right", padx=(0, 8))
+    def _create_widgets(self, fixed_target, clip_mode, effective_theme):
+        tk = self.tk
 
-    # Paned window for resizable input/output split
-    paned = tk.PanedWindow(root, orient="vertical",
-                           sashwidth=4, sashrelief="flat", bd=0,
-                           opaqueresize=True)
-    paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
+        # Top bar
+        self.top_frame = tk.Frame(self.root, pady=6)
+        self.top_frame.pack(fill="x", padx=12)
 
-    text_opts = dict(bd=0, relief="flat", highlightthickness=0,
-                     wrap="word", padx=10, pady=8)
+        self.target_label = tk.Label(self.top_frame, text="target:")
+        self.target_label.pack(side="left")
+        self.lang_var = tk.StringVar(value=fixed_target or "auto")
+        self.lang_entry = tk.Entry(self.top_frame, textvariable=self.lang_var,
+                                   width=6, bd=0, relief="flat", highlightthickness=1)
+        self.lang_entry.pack(side="left", padx=(4, 0))
 
-    # Input pane
-    input_frame = tk.Frame(paned)
-    input_text = tk.Text(input_frame, **text_opts)
-    input_scroll = tk.Scrollbar(input_frame, command=input_text.yview,
-                                highlightthickness=0, bd=0, width=8)
-    input_text.config(yscrollcommand=input_scroll.set)
-    input_scroll.pack(side="right", fill="y")
-    input_text.pack(fill="both", expand=True)
-    paned.add(input_frame, minsize=60)
+        self.clip_var = tk.BooleanVar(value=clip_mode)
+        self.clip_check = tk.Checkbutton(self.top_frame, text="clipboard",
+                                         variable=self.clip_var, highlightthickness=0)
+        self.clip_check.pack(side="right")
 
-    # Output pane
-    output_frame = tk.Frame(paned)
-    output_text = tk.Text(output_frame, state="disabled", **text_opts)
-    output_scroll = tk.Scrollbar(output_frame, command=output_text.yview,
-                                 highlightthickness=0, bd=0, width=8)
-    output_text.config(yscrollcommand=output_scroll.set)
-    output_scroll.pack(side="right", fill="y")
-    output_text.pack(fill="both", expand=True)
-    paned.add(output_frame, minsize=60)
+        self.theme_var = tk.StringVar(value=effective_theme)
+        self.theme_menu = tk.OptionMenu(self.top_frame, self.theme_var, *THEMES.keys())
+        self.theme_menu.config(bd=0, relief="flat", highlightthickness=0)
+        self.theme_menu["menu"].config(bd=0)
+        self.theme_menu.pack(side="right", padx=(0, 8))
 
-    # Status bar
-    status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
-    status_label = tk.Label(root, textvariable=status_var, anchor="w", pady=4)
-    status_label.pack(fill="x", padx=12, side="bottom")
+        # Paned window
+        self.paned = tk.PanedWindow(self.root, orient="vertical",
+                                    sashwidth=4, sashrelief="flat", bd=0,
+                                    opaqueresize=True)
+        self.paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
 
-    def set_output(text):
-        output_text.config(state="normal")
-        output_text.delete("1.0", "end")
-        output_text.insert("1.0", text)
-        output_text.config(state="disabled")
+        text_opts = dict(bd=0, relief="flat", highlightthickness=0,
+                         wrap="word", padx=10, pady=8)
 
-    def get_target():
-        lang = lang_var.get().strip()
+        # Input pane
+        self.input_frame = tk.Frame(self.paned)
+        self.input_text = tk.Text(self.input_frame, **text_opts)
+        self.input_scroll = tk.Scrollbar(self.input_frame, command=self.input_text.yview,
+                                         highlightthickness=0, bd=0, width=8)
+        self.input_text.config(yscrollcommand=self.input_scroll.set)
+        self.input_scroll.pack(side="right", fill="y")
+        self.input_text.pack(fill="both", expand=True)
+        self.paned.add(self.input_frame, minsize=60)
+
+        # Output pane
+        self.output_frame = tk.Frame(self.paned)
+        self.output_text = tk.Text(self.output_frame, state="disabled", **text_opts)
+        self.output_scroll = tk.Scrollbar(self.output_frame, command=self.output_text.yview,
+                                          highlightthickness=0, bd=0, width=8)
+        self.output_text.config(yscrollcommand=self.output_scroll.set)
+        self.output_scroll.pack(side="right", fill="y")
+        self.output_text.pack(fill="both", expand=True)
+        self.paned.add(self.output_frame, minsize=60)
+
+        # Status bar
+        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
+        self.status_label = tk.Label(self.root, textvariable=self.status_var,
+                                     anchor="w", pady=4)
+        self.status_label.pack(fill="x", padx=12, side="bottom")
+
+    def _bind_events(self):
+        self.input_text.bind("<Return>", self._do_translate)
+        self.input_text.bind("<Control-Return>", self._do_translate)
+        self.input_text.bind("<Shift-Return>", lambda e: None)
+        self.root.bind("<Control-Button-4>", self._zoom)
+        self.root.bind("<Control-Button-5>", self._zoom)
+        self.root.bind("<Control-MouseWheel>", self._zoom)
+        self.root.bind("<Control-plus>", self._zoom_in)
+        self.root.bind("<Control-equal>", self._zoom_in)
+        self.root.bind("<Control-minus>", self._zoom_out)
+        self.root.bind("<Control-0>", self._zoom_reset)
+        self.theme_var.trace_add("write", self.apply_theme)
+
+        def set_sash(_=None):
+            h = self.paned.winfo_height()
+            if h > 1:
+                self.paned.sash_place(0, 0, h // 2)
+        self.root.after(50, set_sash)
+        self.paned.bind("<Configure>", set_sash)
+
+        self.input_text.focus_set()
+
+    def _set_output(self, text):
+        self.output_text.config(state="normal")
+        self.output_text.delete("1.0", "end")
+        self.output_text.insert("1.0", text)
+        self.output_text.config(state="disabled")
+
+    def _get_target(self):
+        lang = self.lang_var.get().strip()
         return lang if lang and lang != "auto" else None
 
-    def run_translate(text, prefix=""):
-        """Run translation in a background thread, updating status/output."""
-        target = get_target()
-        status_var.set(f"{prefix}translating..." if prefix else "translating...")
+    def _run_translate(self, text, prefix=""):
+        import threading
+        target = self._get_target()
+        self.status_var.set(f"{prefix}translating..." if prefix else "translating...")
 
         def run():
             try:
                 result = translate_auto(text, target)
-                root.after(0, lambda: set_output(result))
-                root.after(0, lambda: status_var.set(f"{prefix}done" if prefix else "done"))
+                self.root.after(0, lambda: self._set_output(result))
+                self.root.after(0, lambda: self.status_var.set(
+                    f"{prefix}done" if prefix else "done"))
             except Exception as e:
-                root.after(0, lambda: set_output(f"[error] {e}"))
-                root.after(0, lambda: status_var.set(f"{prefix}error" if prefix else "error"))
+                self.root.after(0, lambda: self._set_output(f"[error] {e}"))
+                self.root.after(0, lambda: self.status_var.set(
+                    f"{prefix}error" if prefix else "error"))
 
         threading.Thread(target=run, daemon=True).start()
 
-    def do_translate(_event=None):
-        text = input_text.get("1.0", "end").strip()
+    def _do_translate(self, _event=None):
+        text = self.input_text.get("1.0", "end").strip()
         if not text:
             return "break"
-        run_translate(text)
+        self._run_translate(text)
         return "break"
 
-    # Clipboard monitoring
-    prev_clip = get_clipboard() if clip_mode else ""
-
-    def poll_clipboard():
-        nonlocal prev_clip
-        if not clip_var.get():
-            prev_clip = ""
-            root.after(500, poll_clipboard)
+    def _poll_clipboard(self):
+        if not self.clip_var.get():
+            self._prev_clip = ""
+            self.root.after(500, self._poll_clipboard)
             return
         current = get_clipboard()
-        if current and current != prev_clip:
-            prev_clip = current
+        if current and current != self._prev_clip:
+            self._prev_clip = current
             text = current.strip()
             if text:
-                input_text.delete("1.0", "end")
-                input_text.insert("1.0", text)
-                run_translate(text, prefix="clipboard → ")
-        root.after(500, poll_clipboard)
+                self.input_text.delete("1.0", "end")
+                self.input_text.insert("1.0", text)
+                self._run_translate(text, prefix="clipboard → ")
+        self.root.after(500, self._poll_clipboard)
 
-    root.after(500, poll_clipboard)
-
-    def apply_zoom():
-        apply_theme()
-        status_var.set(f"font size: {font_size}")
-
-    def zoom(event):
-        nonlocal font_size
+    def _zoom(self, event):
         if event.delta > 0 or event.num == 4:
-            font_size = min(font_size + 1, 40)
+            self.font_size = min(self.font_size + 1, 40)
         else:
-            font_size = max(font_size - 1, 8)
-        apply_zoom()
+            self.font_size = max(self.font_size - 1, 8)
+        self._apply_zoom()
 
-    def zoom_in(_event=None):
-        nonlocal font_size
-        font_size = min(font_size + 1, 40)
-        apply_zoom()
+    def _zoom_in(self, _event=None):
+        self.font_size = min(self.font_size + 1, 40)
+        self._apply_zoom()
         return "break"
 
-    def zoom_out(_event=None):
-        nonlocal font_size
-        font_size = max(font_size - 1, 8)
-        apply_zoom()
+    def _zoom_out(self, _event=None):
+        self.font_size = max(self.font_size - 1, 8)
+        self._apply_zoom()
         return "break"
 
-    def zoom_reset(_event=None):
-        nonlocal font_size
-        font_size = config.get("font_size", DEFAULT_FONT_SIZE)
-        apply_zoom()
+    def _zoom_reset(self, _event=None):
+        self.font_size = self.config.get("font_size", DEFAULT_FONT_SIZE)
+        self._apply_zoom()
         return "break"
 
-    def apply_theme(*_args):
-        nonlocal theme
-        t = THEMES.get(theme_var.get(), THEMES[DEFAULT_THEME])
-        theme = t
+    def _apply_zoom(self):
+        self.apply_theme()
+        self.status_var.set(f"font size: {self.font_size}")
+
+    def apply_theme(self, *_args):
+        t = THEMES.get(self.theme_var.get(), THEMES[DEFAULT_THEME])
+        self.theme = t
         bg, bg2, fg = t["bg"], t["bg2"], t["fg"]
         fg_dim, accent, select = t["fg_dim"], t["accent"], t["select"]
-        f, uf = text_font(), ui_font()
-        root.configure(bg=bg)
-        top_frame.configure(bg=bg)
-        target_label.configure(bg=bg, fg=fg_dim, font=uf)
-        lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
-                             highlightbackground=bg2, highlightcolor=accent, font=uf)
-        clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
-                             activebackground=bg, activeforeground=fg, font=uf)
-        theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2, activeforeground=fg)
-        theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
-                                     activeforeground=fg)
-        for w in (input_text, output_text):
+        f, uf = self.text_font(), self.ui_font()
+        self.root.configure(bg=bg)
+        self.top_frame.configure(bg=bg)
+        self.target_label.configure(bg=bg, fg=fg_dim, font=uf)
+        self.lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
+                                  highlightbackground=bg2, highlightcolor=accent, font=uf)
+        self.clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
+                                  activebackground=bg, activeforeground=fg, font=uf)
+        self.theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2, activeforeground=fg)
+        self.theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
+                                          activeforeground=fg)
+        for w in (self.input_text, self.output_text):
             w.configure(bg=bg2, fg=fg, insertbackground=fg,
                         selectbackground=select, selectforeground=fg, font=f)
-        for fr in (input_frame, output_frame):
+        for fr in (self.input_frame, self.output_frame):
             fr.configure(bg=bg2)
-        for s in (input_scroll, output_scroll):
+        for s in (self.input_scroll, self.output_scroll):
             s.configure(bg=bg2, troughcolor=bg2)
-        paned.configure(bg=fg_dim)
-        status_label.configure(bg=bg, fg=fg_dim, font=ui_font(max(font_size - 3, 8)))
+        self.paned.configure(bg=fg_dim)
+        self.status_label.configure(bg=bg, fg=fg_dim,
+                                    font=self.ui_font(max(self.font_size - 3, 8)))
 
-    theme_var.trace_add("write", apply_theme)
-    apply_theme()  # Apply initial theme and fonts
+    def run(self):
+        self.root.mainloop()
 
-    input_text.bind("<Return>", do_translate)
-    input_text.bind("<Control-Return>", do_translate)
-    input_text.bind("<Shift-Return>", lambda e: None)  # allow newline
-    root.bind("<Control-Button-4>", zoom)   # Linux scroll up
-    root.bind("<Control-Button-5>", zoom)   # Linux scroll down
-    root.bind("<Control-MouseWheel>", zoom) # macOS/Windows
-    root.bind("<Control-plus>", zoom_in)
-    root.bind("<Control-equal>", zoom_in)
-    root.bind("<Control-minus>", zoom_out)
-    root.bind("<Control-0>", zoom_reset)
 
-    # Keep sash at 50% on resize
-    def set_sash(_=None):
-        h = paned.winfo_height()
-        if h > 1:
-            paned.sash_place(0, 0, h // 2)
-    root.after(50, set_sash)
-    paned.bind("<Configure>", set_sash)
-
-    input_text.focus_set()
-    root.mainloop()
+def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
+    """Tkinter GUI mode."""
+    app = TranslatorGUI(fixed_target, clip_mode, theme_name, config)
+    app.run()
 
 
 def main():
