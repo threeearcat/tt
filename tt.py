@@ -219,18 +219,11 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
     config = config or {}
     effective_theme = theme_name or config.get("theme", DEFAULT_THEME)
     theme = THEMES.get(effective_theme, THEMES[DEFAULT_THEME])
-    BG = theme["bg"]
-    BG2 = theme["bg2"]
-    FG = theme["fg"]
-    FG_DIM = theme["fg_dim"]
-    ACCENT = theme["accent"]
-    SELECT = theme["select"]
 
     root = tk.Tk()
     root.title("tt")
     root.geometry("700x500")
     root.minsize(300, 100)
-    root.configure(bg=BG)
 
     # Font setup - prefer good CJK fonts
     font_size = config.get("font_size", DEFAULT_FONT_SIZE)
@@ -250,64 +243,51 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
         return (font_family, size or max(font_size - 2, 9))
 
     # Top bar
-    top_frame = tk.Frame(root, bg=BG, pady=6)
+    top_frame = tk.Frame(root, pady=6)
     top_frame.pack(fill="x", padx=12)
 
-    target_label = tk.Label(top_frame, text="target:", bg=BG, fg=FG_DIM,
-                            font=ui_font())
+    target_label = tk.Label(top_frame, text="target:")
     target_label.pack(side="left")
     lang_var = tk.StringVar(value=fixed_target or "auto")
     lang_entry = tk.Entry(top_frame, textvariable=lang_var, width=6,
-                          bg=BG2, fg=FG, insertbackground=FG,
-                          font=ui_font(), bd=0, relief="flat",
-                          highlightthickness=1, highlightbackground=BG2,
-                          highlightcolor=ACCENT)
+                          bd=0, relief="flat", highlightthickness=1)
     lang_entry.pack(side="left", padx=(4, 0))
 
     clip_var = tk.BooleanVar(value=clip_mode)
     clip_check = tk.Checkbutton(top_frame, text="clipboard", variable=clip_var,
-                                bg=BG, fg=FG_DIM, selectcolor=BG2,
-                                activebackground=BG, activeforeground=FG,
-                                font=ui_font(), highlightthickness=0)
+                                highlightthickness=0)
     clip_check.pack(side="right")
 
-    theme_var = tk.StringVar(value=theme_name or DEFAULT_THEME)
+    theme_var = tk.StringVar(value=effective_theme)
     theme_menu = tk.OptionMenu(top_frame, theme_var, *THEMES.keys())
-    theme_menu.config(bg=BG2, fg=FG, font=ui_font(), bd=0, relief="flat",
-                      highlightthickness=0, activebackground=BG2, activeforeground=FG)
-    theme_menu["menu"].config(bg=BG2, fg=FG, font=ui_font(),
-                              activebackground=ACCENT, activeforeground=FG, bd=0)
+    theme_menu.config(bd=0, relief="flat", highlightthickness=0)
+    theme_menu["menu"].config(bd=0)
     theme_menu.pack(side="right", padx=(0, 8))
 
     # Paned window for resizable input/output split
-    paned = tk.PanedWindow(root, orient="vertical", bg=FG_DIM,
+    paned = tk.PanedWindow(root, orient="vertical",
                            sashwidth=4, sashrelief="flat", bd=0,
                            opaqueresize=True)
     paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
 
-    text_opts = dict(bg=BG2, fg=FG, insertbackground=FG,
-                     selectbackground=SELECT, selectforeground=FG,
-                     font=text_font(), bd=0, relief="flat",
-                     highlightthickness=0, wrap="word",
-                     padx=10, pady=8)
+    text_opts = dict(bd=0, relief="flat", highlightthickness=0,
+                     wrap="word", padx=10, pady=8)
 
     # Input pane
-    input_frame = tk.Frame(paned, bg=BG2)
+    input_frame = tk.Frame(paned)
     input_text = tk.Text(input_frame, **text_opts)
     input_scroll = tk.Scrollbar(input_frame, command=input_text.yview,
-                                bg=BG2, troughcolor=BG2, highlightthickness=0,
-                                bd=0, width=8)
+                                highlightthickness=0, bd=0, width=8)
     input_text.config(yscrollcommand=input_scroll.set)
     input_scroll.pack(side="right", fill="y")
     input_text.pack(fill="both", expand=True)
     paned.add(input_frame, minsize=60)
 
     # Output pane
-    output_frame = tk.Frame(paned, bg=BG2)
+    output_frame = tk.Frame(paned)
     output_text = tk.Text(output_frame, state="disabled", **text_opts)
     output_scroll = tk.Scrollbar(output_frame, command=output_text.yview,
-                                 bg=BG2, troughcolor=BG2, highlightthickness=0,
-                                 bd=0, width=8)
+                                 highlightthickness=0, bd=0, width=8)
     output_text.config(yscrollcommand=output_scroll.set)
     output_scroll.pack(side="right", fill="y")
     output_text.pack(fill="both", expand=True)
@@ -315,8 +295,7 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
 
     # Status bar
     status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
-    status_label = tk.Label(root, textvariable=status_var, bg=BG,
-                            fg=FG_DIM, font=ui_font(10), anchor="w", pady=4)
+    status_label = tk.Label(root, textvariable=status_var, anchor="w", pady=4)
     status_label.pack(fill="x", padx=12, side="bottom")
 
     def set_output(text):
@@ -374,14 +353,7 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
     root.after(500, poll_clipboard)
 
     def apply_zoom():
-        f = text_font()
-        uf = ui_font()
-        input_text.config(font=f)
-        output_text.config(font=f)
-        target_label.config(font=uf)
-        lang_entry.config(font=uf)
-        clip_check.config(font=uf)
-        status_label.config(font=ui_font(max(font_size - 3, 8)))
+        apply_theme()
         status_var.set(f"font size: {font_size}")
 
     def zoom(event):
@@ -416,27 +388,29 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
         theme = t
         bg, bg2, fg = t["bg"], t["bg2"], t["fg"]
         fg_dim, accent, select = t["fg_dim"], t["accent"], t["select"]
+        f, uf = text_font(), ui_font()
         root.configure(bg=bg)
         top_frame.configure(bg=bg)
-        target_label.configure(bg=bg, fg=fg_dim)
+        target_label.configure(bg=bg, fg=fg_dim, font=uf)
         lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
-                             highlightbackground=bg2, highlightcolor=accent)
+                             highlightbackground=bg2, highlightcolor=accent, font=uf)
         clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
-                             activebackground=bg, activeforeground=fg)
+                             activebackground=bg, activeforeground=fg, font=uf)
         theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2, activeforeground=fg)
         theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
                                      activeforeground=fg)
         for w in (input_text, output_text):
             w.configure(bg=bg2, fg=fg, insertbackground=fg,
-                        selectbackground=select, selectforeground=fg)
-        for f in (input_frame, output_frame):
-            f.configure(bg=bg2)
+                        selectbackground=select, selectforeground=fg, font=f)
+        for fr in (input_frame, output_frame):
+            fr.configure(bg=bg2)
         for s in (input_scroll, output_scroll):
             s.configure(bg=bg2, troughcolor=bg2)
         paned.configure(bg=fg_dim)
-        status_label.configure(bg=bg, fg=fg_dim)
+        status_label.configure(bg=bg, fg=fg_dim, font=ui_font(max(font_size - 3, 8)))
 
     theme_var.trace_add("write", apply_theme)
+    apply_theme()  # Apply initial theme and fonts
 
     input_text.bind("<Return>", do_translate)
     input_text.bind("<Control-Return>", do_translate)
