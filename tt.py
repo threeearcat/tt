@@ -277,6 +277,12 @@ class TranslatorGUI:
         self.theme_menu["menu"].config(bd=0)
         self.theme_menu.pack(side="right", padx=(0, 8))
 
+        # Status bar (pack before paned so it gets space first)
+        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
+        self.status_label = tk.Label(self.root, textvariable=self.status_var,
+                                     anchor="w", pady=4)
+        self.status_label.pack(fill="x", padx=12, side="bottom")
+
         # Paned window
         self.paned = tk.PanedWindow(self.root, orient="vertical",
                                     sashwidth=4, sashrelief="flat", bd=0,
@@ -305,12 +311,6 @@ class TranslatorGUI:
         self.output_scroll.pack(side="right", fill="y")
         self.output_text.pack(fill="both", expand=True)
         self.paned.add(self.output_frame, minsize=60)
-
-        # Status bar
-        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
-        self.status_label = tk.Label(self.root, textvariable=self.status_var,
-                                     anchor="w", pady=4)
-        self.status_label.pack(fill="x", padx=12, side="bottom")
 
     def _bind_events(self):
         self.input_text.bind("<Return>", self._do_translate)
