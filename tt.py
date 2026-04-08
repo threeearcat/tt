@@ -16,17 +16,17 @@ import urllib.request
 
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
 MW_API_URL = "https://www.dictionaryapi.com/api/v3/references/collegiate/json"
-MW_CONFIG_PATH = os.path.expanduser("~/.config/english-vocab/config.json")
+CONFIG_PATH = os.path.expanduser("~/.config/tt/config.json")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT = 5
 MAX_RETRIES = 2
 
 
 def _load_mw_key():
-    """Load Merriam-Webster API key from config, or return None."""
+    """Load Merriam-Webster API key from tt config."""
     try:
-        with open(MW_CONFIG_PATH) as f:
-            return json.load(f)["merriam_webster"]["dictionary_key"]
+        with open(CONFIG_PATH) as f:
+            return json.load(f).get("mw_api_key")
     except Exception:
         return None
 
@@ -149,7 +149,6 @@ THEMES = {
 }
 DEFAULT_THEME = "gruvbox-dark"
 DEFAULT_FONT_SIZE = 20
-CONFIG_PATH = os.path.expanduser("~/.config/tt/config.json")
 
 
 def load_config():

@@ -88,17 +88,12 @@ When a single English word is entered, `tt` can show Merriam-Webster dictionary 
 
 1. Register for a free API key at [dictionaryapi.com](https://dictionaryapi.com/register/index)
    - Select **Collegiate Dictionary** when choosing a product
-2. Create the config file:
+2. Add the key to `~/.config/tt/config.json`:
 
-```bash
-mkdir -p ~/.config/english-vocab
-cat > ~/.config/english-vocab/config.json << 'EOF'
+```json
 {
-  "merriam_webster": {
-    "dictionary_key": "YOUR_API_KEY_HERE"
-  }
+  "mw_api_key": "YOUR_API_KEY_HERE"
 }
-EOF
 ```
 
 3. Use `-d` to control dictionary behavior:
