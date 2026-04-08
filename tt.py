@@ -15,9 +15,87 @@ import urllib.parse
 import urllib.request
 
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
+MW_API_URL = "https://www.dictionaryapi.com/api/v3/references/collegiate/json"
+MW_CONFIG_PATH = os.path.expanduser("~/.config/english-vocab/config.json")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT = 5
 MAX_RETRIES = 2
+
+
+def _load_mw_key():
+    """Load Merriam-Webster API key from config, or return None."""
+    try:
+        with open(MW_CONFIG_PATH) as f:
+            return json.load(f)["merriam_webster"]["dictionary_key"]
+    except Exception:
+        return None
+
+
+MW_KEY = _load_mw_key()
+
+
+def is_single_word(text):
+    """Check if text is a single English word."""
+    return bool(text) and len(text.split()) == 1 and text.isascii() and text.isalpha()
+
+
+def mw_lookup(word):
+    """Look up a word in Merriam-Webster. Returns formatted string or None."""
+    if not MW_KEY:
+        return None
+    url = f"{MW_API_URL}/{urllib.parse.quote(word)}?key={MW_KEY}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+    if not data or not isinstance(data[0], dict):
+        if data and isinstance(data[0], str):
+            return f"Word not found. Suggestions: {', '.join(data[:5])}"
+        return None
+
+    lines = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        word_id = entry.get("meta", {}).get("id", word).split(":")[0]
+        pos = entry.get("fl", "")
+        pron = ""
+        try:
+            pron = entry["hwi"]["prs"][0]["mw"]
+        except (KeyError, IndexError, TypeError):
+            pass
+
+        header = word_id
+        if pron:
+            header += f"  /{pron}/"
+        if pos:
+            header += f"  ({pos})"
+        lines.append(header)
+
+        for i, d in enumerate(entry.get("shortdef", []), 1):
+            lines.append(f"  {i}. {d}")
+
+        for def_block in entry.get("def", []):
+            for sseq in def_block.get("sseq", []):
+                for sense_group in sseq:
+                    if not isinstance(sense_group, list) or len(sense_group) < 2:
+                        continue
+                    sense = sense_group[1]
+                    if isinstance(sense, dict):
+                        for dt_item in sense.get("dt", []):
+                            if isinstance(dt_item, list) and len(dt_item) >= 2:
+                                if dt_item[0] == "vis":
+                                    for vis in dt_item[1]:
+                                        ex = vis.get("t", "")
+                                        ex = ex.replace("{it}", "_").replace("{/it}", "_")
+                                        ex = ex.replace("{wi}", "").replace("{/wi}", "")
+                                        ex = ex.replace("{phrase}", "").replace("{/phrase}", "")
+                                        lines.append(f"     e.g. {ex}")
+        lines.append("")
+    return "\n".join(lines).strip() if lines else None
 
 THEMES = {
     "gruvbox-dark": {
@@ -129,14 +207,30 @@ def auto_target(text):
     return "ko"
 
 
-def translate_auto(text, fixed_target=None):
-    """Translate with auto-toggle unless fixed_target is set."""
+def translate_auto(text, fixed_target=None, dict_mode="both"):
+    """Translate with auto-toggle unless fixed_target is set.
+
+    dict_mode: "both" (translate+dict), "dict" (dict only), "off" (translate only)
+    """
+    word = text.strip()
+    use_dict = MW_KEY and dict_mode != "off" and is_single_word(word)
+
+    if use_dict and dict_mode == "dict":
+        defn = mw_lookup(word.lower())
+        return defn if defn else f"No dictionary entry for '{word}'"
+
     target = fixed_target if fixed_target else auto_target(text)
     translated, detected = translate(text, target=target)
-    return translated
+    result = translated
+
+    if use_dict:
+        defn = mw_lookup(word.lower())
+        if defn:
+            result += "\n\n── dictionary ──\n" + defn
+    return result
 
 
-def repl(fixed_target=None):
+def repl(fixed_target=None, dict_mode="both"):
     """Interactive REPL mode."""
     label = fixed_target if fixed_target else "auto"
     print(f"tt ({label}) | :q to quit")
@@ -151,7 +245,7 @@ def repl(fixed_target=None):
         if text == ":q":
             break
         try:
-            print(translate_auto(text, fixed_target))
+            print(translate_auto(text, fixed_target, dict_mode=dict_mode))
         except Exception as e:
             print(f"[error] {e}", file=sys.stderr)
 
@@ -213,7 +307,8 @@ def get_clipboard():
 class TranslatorGUI:
     """Tkinter GUI for tt."""
 
-    def __init__(self, fixed_target=None, clip_mode=False, theme_name=None, config=None):
+    def __init__(self, fixed_target=None, clip_mode=False, theme_name=None,
+                 config=None, dict_mode="both"):
         import tkinter as tk
         import tkinter.font as tkfont
 
@@ -222,6 +317,7 @@ class TranslatorGUI:
         effective_theme = theme_name or self.config.get("theme", DEFAULT_THEME)
         self.theme = THEMES.get(effective_theme, THEMES[DEFAULT_THEME])
         self.font_size = self.config.get("font_size", DEFAULT_FONT_SIZE)
+        self.dict_mode = dict_mode
 
         self.root = tk.Tk()
         self.root.title("tt")
@@ -267,6 +363,7 @@ class TranslatorGUI:
         self.lang_entry.pack(side="left", padx=(4, 0))
 
         self.clip_var = tk.BooleanVar(value=clip_mode)
+        self.dict_var = tk.StringVar(value=self.dict_mode if MW_KEY else "off")
         self.clip_check = tk.Checkbutton(self.top_frame, text="clipboard",
                                          variable=self.clip_var, highlightthickness=0)
         self.clip_check.pack(side="right")
@@ -347,11 +444,12 @@ class TranslatorGUI:
     def _run_translate(self, text, prefix=""):
         import threading
         target = self._get_target()
+        dm = self.dict_var.get()
         self.status_var.set(f"{prefix}translating..." if prefix else "translating...")
 
         def run():
             try:
-                result = translate_auto(text, target)
+                result = translate_auto(text, target, dict_mode=dm)
                 self.root.after(0, lambda: self._set_output(result))
                 self.root.after(0, lambda: self.status_var.set(
                     f"{prefix}done" if prefix else "done"))
@@ -442,9 +540,10 @@ class TranslatorGUI:
         self.root.mainloop()
 
 
-def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
+def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None,
+        dict_mode="both"):
     """Tkinter GUI mode."""
-    app = TranslatorGUI(fixed_target, clip_mode, theme_name, config)
+    app = TranslatorGUI(fixed_target, clip_mode, theme_name, config, dict_mode)
     app.run()
 
 
@@ -457,6 +556,9 @@ def main():
     )
     parser.add_argument("text", nargs="*", help="text to translate")
     parser.add_argument("-t", "--target", default=None, help="target language (default: auto-toggle ko/en)")
+    parser.add_argument("-d", "--dict", default=config.get("dict_mode", "both"),
+                        choices=["both", "dict", "off"],
+                        help="dictionary mode for single words (default: saved or both)")
     parser.add_argument("--clip", action="store_true", help="clipboard monitoring mode")
     parser.add_argument("--repl", action="store_true", help="interactive REPL mode")
     parser.add_argument("--theme", default=None,
@@ -467,10 +569,11 @@ def main():
     target = args.target or config.get("target")
 
     if args.clip and not args.text:
-        gui(target, clip_mode=True, theme_name=args.theme, config=config)
+        gui(target, clip_mode=True, theme_name=args.theme, config=config,
+            dict_mode=args.dict)
     elif args.text:
         try:
-            print(translate_auto(" ".join(args.text), target))
+            print(translate_auto(" ".join(args.text), target, dict_mode=args.dict))
         except Exception as e:
             print(f"[error] {e}", file=sys.stderr)
             sys.exit(1)
@@ -478,16 +581,16 @@ def main():
         text = sys.stdin.read().strip()
         if text:
             try:
-                print(translate_auto(text, target))
+                print(translate_auto(text, target, dict_mode=args.dict))
             except Exception as e:
                 print(f"[error] {e}", file=sys.stderr)
                 sys.exit(1)
         else:
-            gui(target, theme_name=args.theme, config=config)
+            gui(target, theme_name=args.theme, config=config, dict_mode=args.dict)
     elif args.repl:
-        repl(target)
+        repl(target, dict_mode=args.dict)
     else:
-        gui(target, theme_name=args.theme, config=config)
+        gui(target, theme_name=args.theme, config=config, dict_mode=args.dict)
 
 
 if __name__ == "__main__":

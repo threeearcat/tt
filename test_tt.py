@@ -50,21 +50,34 @@ class TestLoadConfig(unittest.TestCase):
 class TestTranslateAuto(unittest.TestCase):
     @patch("tt.translate", return_value=("안녕", "en"))
     def test_auto_target_english_to_korean(self, mock_translate):
-        result = tt.translate_auto("hello")
+        result = tt.translate_auto("hello", dict_mode="off")
         mock_translate.assert_called_once_with("hello", target="ko")
         self.assertEqual(result, "안녕")
 
     @patch("tt.translate", return_value=("hello", "ko"))
     def test_auto_target_korean_to_english(self, mock_translate):
-        result = tt.translate_auto("안녕")
+        result = tt.translate_auto("안녕", dict_mode="off")
         mock_translate.assert_called_once_with("안녕", target="en")
         self.assertEqual(result, "hello")
 
     @patch("tt.translate", return_value=("こんにちは", "en"))
     def test_fixed_target(self, mock_translate):
-        result = tt.translate_auto("hello", fixed_target="ja")
+        result = tt.translate_auto("hello", fixed_target="ja", dict_mode="off")
         mock_translate.assert_called_once_with("hello", target="ja")
         self.assertEqual(result, "こんにちは")
+
+    @patch("tt.mw_lookup", return_value="test /ˈtest/ (noun)\n  1. a test")
+    @patch("tt.translate", return_value=("테스트", "en"))
+    def test_dict_mode_both(self, mock_translate, mock_mw):
+        result = tt.translate_auto("test", dict_mode="both")
+        self.assertIn("테스트", result)
+        self.assertIn("── dictionary ──", result)
+
+    @patch("tt.mw_lookup", return_value="test /ˈtest/ (noun)\n  1. a test")
+    def test_dict_mode_dict_only(self, mock_mw):
+        result = tt.translate_auto("test", dict_mode="dict")
+        self.assertNotIn("테스트", result)
+        self.assertIn("test", result)
 
 
 if __name__ == "__main__":
