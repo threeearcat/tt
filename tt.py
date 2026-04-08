@@ -403,6 +403,10 @@ class TranslatorGUI:
                                      cursor="hand2")
         self.settings_btn.pack(side="right")
 
+        self.clear_btn = tk.Label(self.top_frame, text="clear",
+                                   cursor="hand2")
+        self.clear_btn.pack(side="right", padx=(0, 10))
+
         self.clip_label = tk.Label(self.top_frame, text="clip",
                                    cursor="hand2")
         self.clip_label.pack(side="right", padx=(0, 10))
@@ -410,7 +414,7 @@ class TranslatorGUI:
         self._settings_win = None
 
         # Status bar (pack before paned so it gets space first)
-        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter newline")
+        self.status_var = tk.StringVar(value="Enter: translate | Ctrl+L: clear | Ctrl+D: clipboard")
         self.status_label = tk.Label(self.root, textvariable=self.status_var,
                                      anchor="w", pady=4)
         self.status_label.pack(fill="x", padx=12, side="bottom")
@@ -480,6 +484,7 @@ class TranslatorGUI:
         self.input_text.bind("<Control-Return>", self._do_translate)
         self.input_text.bind("<Shift-Return>", lambda e: None)
         self.input_text.bind("<Control-a>", self._select_all)
+        self.input_text.bind("<Control-l>", self._clear)
         self.input_text.focus_set()
 
         # Apply theme and restore sash
@@ -506,8 +511,10 @@ class TranslatorGUI:
         self.root.bind("<Control-0>", self._zoom_reset)
         self.root.bind("<Control-comma>", self._open_settings)
         self.settings_btn.bind("<Button-1>", self._open_settings)
+        self.clear_btn.bind("<Button-1>", self._clear)
         self.clip_label.bind("<Button-1>", lambda e: self._toggle_clip())
         self.root.bind("<Control-d>", lambda e: self._toggle_clip())
+        self.root.bind("<Control-l>", self._clear)
         self.theme_var.trace_add("write", self.apply_theme)
         self.split_var.trace_add("write", lambda *_: self._build_paned(
             self.split_var.get(), 0.5))
@@ -693,8 +700,16 @@ class TranslatorGUI:
     def _do_translate(self, _event=None):
         text = self.input_text.get("1.0", "end").strip()
         if not text:
+            self._set_output("")
             return "break"
         self._run_translate(text)
+        return "break"
+
+    def _clear(self, _event=None):
+        self.input_text.delete("1.0", "end")
+        self._set_output("")
+        self.status_var.set("")
+        self.input_text.focus_set()
         return "break"
 
     def _poll_clipboard(self):
@@ -752,6 +767,7 @@ class TranslatorGUI:
         self.lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
                                   highlightbackground=bg2, highlightcolor=accent, font=uf)
         self.settings_btn.configure(bg=bg, fg=accent, font=sf)
+        self.clear_btn.configure(bg=bg, fg=accent, font=sf)
         self.clip_label.configure(bg=bg, font=sf)
         self._update_clip_label()
         for w in (self.input_text, self.output_text):
