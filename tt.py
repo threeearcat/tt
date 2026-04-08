@@ -19,6 +19,58 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT = 5
 MAX_RETRIES = 2
 
+THEMES = {
+    "gruvbox-dark": {
+        "bg": "#1d2021", "bg2": "#282828", "fg": "#ebdbb2",
+        "fg_dim": "#928374", "accent": "#83a598", "select": "#3c3836",
+    },
+    "gruvbox-light": {
+        "bg": "#fbf1c7", "bg2": "#f2e5bc", "fg": "#3c3836",
+        "fg_dim": "#928374", "accent": "#427b58", "select": "#d5c4a1",
+    },
+    "dracula": {
+        "bg": "#21222c", "bg2": "#282a36", "fg": "#f8f8f2",
+        "fg_dim": "#6272a4", "accent": "#bd93f9", "select": "#44475a",
+    },
+    "nord": {
+        "bg": "#2e3440", "bg2": "#3b4252", "fg": "#eceff4",
+        "fg_dim": "#4c566a", "accent": "#88c0d0", "select": "#434c5e",
+    },
+    "catppuccin-mocha": {
+        "bg": "#1e1e2e", "bg2": "#313244", "fg": "#cdd6f4",
+        "fg_dim": "#6c7086", "accent": "#cba6f7", "select": "#45475a",
+    },
+    "catppuccin-latte": {
+        "bg": "#eff1f5", "bg2": "#e6e9ef", "fg": "#4c4f69",
+        "fg_dim": "#9ca0b0", "accent": "#8839ef", "select": "#ccd0da",
+    },
+    "solarized-dark": {
+        "bg": "#002b36", "bg2": "#073642", "fg": "#839496",
+        "fg_dim": "#586e75", "accent": "#268bd2", "select": "#073642",
+    },
+    "solarized-light": {
+        "bg": "#fdf6e3", "bg2": "#eee8d5", "fg": "#657b83",
+        "fg_dim": "#93a1a1", "accent": "#268bd2", "select": "#eee8d5",
+    },
+    "tokyo-night": {
+        "bg": "#1a1b26", "bg2": "#24283b", "fg": "#c0caf5",
+        "fg_dim": "#565f89", "accent": "#7aa2f7", "select": "#33467c",
+    },
+    "rose-pine": {
+        "bg": "#191724", "bg2": "#1f1d2e", "fg": "#e0def4",
+        "fg_dim": "#6e6a86", "accent": "#c4a7e7", "select": "#26233a",
+    },
+    "kanagawa": {
+        "bg": "#1f1f28", "bg2": "#2a2a37", "fg": "#dcd7ba",
+        "fg_dim": "#727169", "accent": "#7e9cd8", "select": "#2d4f67",
+    },
+    "everforest": {
+        "bg": "#272e33", "bg2": "#2d353b", "fg": "#d3c6aa",
+        "fg_dim": "#859289", "accent": "#a7c080", "select": "#3d484d",
+    },
+}
+DEFAULT_THEME = "gruvbox-dark"
+
 
 def translate(text, target="ko", source="auto"):
     """Translate text. Returns (translated_text, detected_source_lang)."""
@@ -171,18 +223,19 @@ def clip_watch(fixed_target=None):
             break
 
 
-def gui(fixed_target=None, clip_mode=False):
+def gui(fixed_target=None, clip_mode=False, theme_name=None):
     """Tkinter GUI mode."""
     import tkinter as tk
     import tkinter.font as tkfont
     import threading
 
-    BG = "#1d2021"
-    BG2 = "#282828"
-    FG = "#ebdbb2"
-    FG_DIM = "#928374"
-    ACCENT = "#83a598"
-    SELECT = "#3c3836"
+    theme = [THEMES.get(theme_name or DEFAULT_THEME, THEMES[DEFAULT_THEME])]
+    BG = theme[0]["bg"]
+    BG2 = theme[0]["bg2"]
+    FG = theme[0]["fg"]
+    FG_DIM = theme[0]["fg_dim"]
+    ACCENT = theme[0]["accent"]
+    SELECT = theme[0]["select"]
 
     root = tk.Tk()
     root.title("tt")
@@ -225,6 +278,14 @@ def gui(fixed_target=None, clip_mode=False):
                                 activebackground=BG, activeforeground=FG,
                                 font=ui_font(), highlightthickness=0)
     clip_check.pack(side="right")
+
+    theme_var = tk.StringVar(value=theme_name or DEFAULT_THEME)
+    theme_menu = tk.OptionMenu(top_frame, theme_var, *THEMES.keys())
+    theme_menu.config(bg=BG2, fg=FG, font=ui_font(), bd=0, relief="flat",
+                      highlightthickness=0, activebackground=BG2, activeforeground=FG)
+    theme_menu["menu"].config(bg=BG2, fg=FG, font=ui_font(),
+                              activebackground=ACCENT, activeforeground=FG, bd=0)
+    theme_menu.pack(side="right", padx=(0, 8))
 
     # Paned window for resizable input/output split
     paned = tk.PanedWindow(root, orient="vertical", bg=FG_DIM,
@@ -360,6 +421,33 @@ def gui(fixed_target=None, clip_mode=False):
         apply_zoom()
         return "break"
 
+    def apply_theme(*_args):
+        t = THEMES.get(theme_var.get(), THEMES[DEFAULT_THEME])
+        theme[0] = t
+        bg, bg2, fg = t["bg"], t["bg2"], t["fg"]
+        fg_dim, accent, select = t["fg_dim"], t["accent"], t["select"]
+        root.configure(bg=bg)
+        top_frame.configure(bg=bg)
+        target_label.configure(bg=bg, fg=fg_dim)
+        lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
+                             highlightbackground=bg2, highlightcolor=accent)
+        clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
+                             activebackground=bg, activeforeground=fg)
+        theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2, activeforeground=fg)
+        theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
+                                     activeforeground=fg)
+        for w in (input_text, output_text):
+            w.configure(bg=bg2, fg=fg, insertbackground=fg,
+                        selectbackground=select, selectforeground=fg)
+        for f in (input_frame, output_frame):
+            f.configure(bg=bg2)
+        for s in (input_scroll, output_scroll):
+            s.configure(bg=bg2, troughcolor=bg2)
+        paned.configure(bg=fg_dim)
+        status_label.configure(bg=bg, fg=fg_dim)
+
+    theme_var.trace_add("write", apply_theme)
+
     input_text.bind("<Return>", do_translate)
     input_text.bind("<Control-Return>", do_translate)
     input_text.bind("<Shift-Return>", lambda e: None)  # allow newline
@@ -392,10 +480,13 @@ def main():
     parser.add_argument("-t", "--target", default=None, help="target language (default: auto-toggle ko/en)")
     parser.add_argument("--clip", action="store_true", help="clipboard monitoring mode")
     parser.add_argument("--repl", action="store_true", help="interactive REPL mode")
+    parser.add_argument("--theme", default=None,
+                        choices=list(THEMES.keys()),
+                        help=f"color theme (default: {DEFAULT_THEME})")
     args = parser.parse_args()
 
     if args.clip and not args.text:
-        gui(args.target, clip_mode=True)
+        gui(args.target, clip_mode=True, theme_name=args.theme)
     elif args.text:
         try:
             print(translate_auto(" ".join(args.text), args.target))
@@ -411,11 +502,11 @@ def main():
                 print(f"[error] {e}", file=sys.stderr)
                 sys.exit(1)
         else:
-            gui(args.target)
+            gui(args.target, theme_name=args.theme)
     elif args.repl:
         repl(args.target)
     else:
-        gui(args.target)
+        gui(args.target, theme_name=args.theme)
 
 
 if __name__ == "__main__":

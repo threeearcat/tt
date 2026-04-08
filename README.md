@@ -49,6 +49,13 @@ tt --repl
 | `-t`, `--target` | Target language code (default: auto-toggle ko/en) |
 | `--clip` | Clipboard monitoring mode (GUI with auto-translate) |
 | `--repl` | Interactive REPL mode |
+| `--theme` | Color theme (see below) |
+
+## Themes
+
+`gruvbox-dark` (default), `gruvbox-light`, `dracula`, `nord`, `catppuccin-mocha`, `catppuccin-latte`, `solarized-dark`, `solarized-light`, `tokyo-night`, `rose-pine`, `kanagawa`, `everforest`
+
+Theme can also be changed live from the dropdown in the GUI.
 
 ## GUI Shortcuts
 
