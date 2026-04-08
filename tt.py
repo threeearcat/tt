@@ -210,30 +210,6 @@ def get_clipboard():
         return ""
 
 
-def clip_watch(fixed_target=None):
-    """Watch clipboard and translate new content."""
-    label = fixed_target if fixed_target else "auto"
-    print(f"tt clip ({label}) | Ctrl+C to stop")
-    prev = get_clipboard()
-    while True:
-        try:
-            time.sleep(0.5)
-            current = get_clipboard()
-            if current and current != prev:
-                prev = current
-                text = current.strip()
-                if text:
-                    try:
-                        result = translate_auto(text, fixed_target)
-                        print(f"\n--- [{text[:60]}{'...' if len(text) > 60 else ''}]")
-                        print(result)
-                    except Exception as e:
-                        print(f"[error] {e}", file=sys.stderr)
-        except KeyboardInterrupt:
-            print()
-            break
-
-
 def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
     """Tkinter GUI mode."""
     import tkinter as tk
