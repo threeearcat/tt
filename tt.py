@@ -218,13 +218,13 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
 
     config = config or {}
     effective_theme = theme_name or config.get("theme", DEFAULT_THEME)
-    theme = [THEMES.get(effective_theme, THEMES[DEFAULT_THEME])]
-    BG = theme[0]["bg"]
-    BG2 = theme[0]["bg2"]
-    FG = theme[0]["fg"]
-    FG_DIM = theme[0]["fg_dim"]
-    ACCENT = theme[0]["accent"]
-    SELECT = theme[0]["select"]
+    theme = THEMES.get(effective_theme, THEMES[DEFAULT_THEME])
+    BG = theme["bg"]
+    BG2 = theme["bg2"]
+    FG = theme["fg"]
+    FG_DIM = theme["fg_dim"]
+    ACCENT = theme["accent"]
+    SELECT = theme["select"]
 
     root = tk.Tk()
     root.title("tt")
@@ -233,7 +233,7 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
     root.configure(bg=BG)
 
     # Font setup - prefer good CJK fonts
-    font_size = [config.get("font_size", DEFAULT_FONT_SIZE)]
+    font_size = config.get("font_size", DEFAULT_FONT_SIZE)
     font_family = "monospace"
     candidates = ["JetBrains Mono", "Noto Sans Mono CJK KR", "DejaVu Sans Mono"]
     if "font_family" in config:
@@ -244,10 +244,10 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
             break
 
     def text_font():
-        return (font_family, font_size[0])
+        return (font_family, font_size)
 
     def ui_font(size=0):
-        return (font_family, size or max(font_size[0] - 2, 9))
+        return (font_family, size or max(font_size - 2, 9))
 
     # Top bar
     top_frame = tk.Frame(root, bg=BG, pady=6)
@@ -349,16 +349,17 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
         return "break"
 
     # Clipboard monitoring
-    prev_clip = [get_clipboard() if clip_mode else ""]
+    prev_clip = get_clipboard() if clip_mode else ""
 
     def poll_clipboard():
+        nonlocal prev_clip
         if not clip_var.get():
-            prev_clip[0] = ""
+            prev_clip = ""
             root.after(500, poll_clipboard)
             return
         current = get_clipboard()
-        if current and current != prev_clip[0]:
-            prev_clip[0] = current
+        if current and current != prev_clip:
+            prev_clip = current
             text = current.strip()
             if text:
                 input_text.delete("1.0", "end")
@@ -388,34 +389,39 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
         target_label.config(font=uf)
         lang_entry.config(font=uf)
         clip_check.config(font=uf)
-        status_label.config(font=ui_font(max(font_size[0] - 3, 8)))
-        status_var.set(f"font size: {font_size[0]}")
+        status_label.config(font=ui_font(max(font_size - 3, 8)))
+        status_var.set(f"font size: {font_size}")
 
     def zoom(event):
+        nonlocal font_size
         if event.delta > 0 or event.num == 4:
-            font_size[0] = min(font_size[0] + 1, 40)
+            font_size = min(font_size + 1, 40)
         else:
-            font_size[0] = max(font_size[0] - 1, 8)
+            font_size = max(font_size - 1, 8)
         apply_zoom()
 
     def zoom_in(_event=None):
-        font_size[0] = min(font_size[0] + 1, 40)
+        nonlocal font_size
+        font_size = min(font_size + 1, 40)
         apply_zoom()
         return "break"
 
     def zoom_out(_event=None):
-        font_size[0] = max(font_size[0] - 1, 8)
+        nonlocal font_size
+        font_size = max(font_size - 1, 8)
         apply_zoom()
         return "break"
 
     def zoom_reset(_event=None):
-        font_size[0] = config.get("font_size", DEFAULT_FONT_SIZE)
+        nonlocal font_size
+        font_size = config.get("font_size", DEFAULT_FONT_SIZE)
         apply_zoom()
         return "break"
 
     def apply_theme(*_args):
+        nonlocal theme
         t = THEMES.get(theme_var.get(), THEMES[DEFAULT_THEME])
-        theme[0] = t
+        theme = t
         bg, bg2, fg = t["bg"], t["bg2"], t["fg"]
         fg_dim, accent, select = t["fg_dim"], t["accent"], t["select"]
         root.configure(bg=bg)
