@@ -329,23 +329,27 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
         lang = lang_var.get().strip()
         return lang if lang and lang != "auto" else None
 
-    def do_translate(_event=None):
-        text = input_text.get("1.0", "end").strip()
-        if not text:
-            return "break"
+    def run_translate(text, prefix=""):
+        """Run translation in a background thread, updating status/output."""
         target = get_target()
-        status_var.set("translating...")
+        status_var.set(f"{prefix}translating..." if prefix else "translating...")
 
         def run():
             try:
                 result = translate_auto(text, target)
                 root.after(0, lambda: set_output(result))
-                root.after(0, lambda: status_var.set("done"))
+                root.after(0, lambda: status_var.set(f"{prefix}done" if prefix else "done"))
             except Exception as e:
                 root.after(0, lambda: set_output(f"[error] {e}"))
-                root.after(0, lambda: status_var.set("error"))
+                root.after(0, lambda: status_var.set(f"{prefix}error" if prefix else "error"))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def do_translate(_event=None):
+        text = input_text.get("1.0", "end").strip()
+        if not text:
+            return "break"
+        run_translate(text)
         return "break"
 
     # Clipboard monitoring
@@ -364,19 +368,7 @@ def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
             if text:
                 input_text.delete("1.0", "end")
                 input_text.insert("1.0", text)
-                target = get_target()
-                status_var.set("clipboard → translating...")
-
-                def run():
-                    try:
-                        result = translate_auto(text, target)
-                        root.after(0, lambda: set_output(result))
-                        root.after(0, lambda: status_var.set("clipboard → done"))
-                    except Exception as e:
-                        root.after(0, lambda: set_output(f"[error] {e}"))
-                        root.after(0, lambda: status_var.set("clipboard → error"))
-
-                threading.Thread(target=run, daemon=True).start()
+                run_translate(text, prefix="clipboard → ")
         root.after(500, poll_clipboard)
 
     root.after(500, poll_clipboard)
