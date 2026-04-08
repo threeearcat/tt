@@ -79,6 +79,8 @@ Optional config file at `~/.config/tt/config.json`. If absent, defaults are used
 | `target` | Target language | auto-toggle ko/en |
 | `font_family` | Preferred font family | auto-detect |
 | `dict_mode` | Dictionary mode (`both`, `dict`, `off`) | `both` |
+| `clipboard` | Clipboard monitor on startup | `false` |
+| `sash_frac` | Input/output split ratio | `0.5` |
 
 ## Merriam-Webster Dictionary (Optional)
 
@@ -116,6 +118,9 @@ tt -d off "hello"     # translate only
 | Ctrl+Scroll | Zoom in/out |
 | Ctrl++/Ctrl+- | Zoom in/out |
 | Ctrl+0 | Reset zoom |
+| Ctrl+, | Open settings |
+
+Settings are also accessible via the **settings** button in the GUI and saved automatically on exit.
 
 ## Requirements
 

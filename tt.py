@@ -391,18 +391,15 @@ class TranslatorGUI:
 
         self.clip_var = tk.BooleanVar(value=clip_mode)
         self.dict_var = tk.StringVar(value=self.dict_mode if MW_KEY else "off")
-        self.clip_check = tk.Checkbutton(self.top_frame, text="clipboard",
-                                         variable=self.clip_var, highlightthickness=0)
-        self.clip_check.pack(side="right")
-
         self.theme_var = tk.StringVar(value=effective_theme)
-        self.theme_menu = tk.OptionMenu(self.top_frame, self.theme_var, *THEMES.keys())
-        self.theme_menu.config(bd=0, relief="flat", highlightthickness=0)
-        self.theme_menu["menu"].config(bd=0)
-        self.theme_menu.pack(side="right", padx=(0, 8))
+
+        self.settings_btn = tk.Label(self.top_frame, text="settings",
+                                     cursor="hand2")
+        self.settings_btn.pack(side="right")
+        self._settings_win = None
 
         # Status bar (pack before paned so it gets space first)
-        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
+        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter newline")
         self.status_label = tk.Label(self.root, textvariable=self.status_var,
                                      anchor="w", pady=4)
         self.status_label.pack(fill="x", padx=12, side="bottom")
@@ -447,6 +444,8 @@ class TranslatorGUI:
         self.root.bind("<Control-equal>", self._zoom_in)
         self.root.bind("<Control-minus>", self._zoom_out)
         self.root.bind("<Control-0>", self._zoom_reset)
+        self.root.bind("<Control-comma>", self._open_settings)
+        self.settings_btn.bind("<Button-1>", self._open_settings)
         self.theme_var.trace_add("write", self.apply_theme)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -463,6 +462,122 @@ class TranslatorGUI:
     def _on_close(self):
         self._save_config()
         self.root.destroy()
+
+    def _open_settings(self, _event=None):
+        tk = self.tk
+        if self._settings_win and self._settings_win.winfo_exists():
+            self._settings_win.lift()
+            self._settings_win.focus_force()
+            return "break"
+
+        t = self.theme
+        win = tk.Toplevel(self.root)
+        self._settings_win = win
+        win.title("tt — settings")
+        win.geometry("420x380")
+        win.minsize(350, 300)
+        win.configure(bg=t["bg"])
+        win.transient(self.root)
+        win.lift()
+        win.focus_force()
+
+        sf = self.small_font()
+        uf = self.ui_font()
+        pad = dict(padx=20, pady=(12, 0))
+
+        def make_row():
+            f = tk.Frame(win, bg=t["bg"])
+            f.pack(fill="x", **pad)
+            return f
+
+        def make_label(parent, text):
+            return tk.Label(parent, text=text, bg=t["bg"], fg=t["fg_dim"],
+                            font=sf, anchor="w")
+
+        # Theme
+        row = make_row()
+        make_label(row, "THEME").pack(side="left")
+        tm = tk.OptionMenu(row, self.theme_var, *THEMES.keys())
+        tm.config(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
+                  highlightthickness=0, activebackground=t["bg2"],
+                  activeforeground=t["fg"])
+        tm["menu"].config(bg=t["bg2"], fg=t["fg"], font=uf,
+                          activebackground=t["accent"], activeforeground=t["fg"], bd=0)
+        tm.pack(side="right")
+
+        # Font size
+        row = make_row()
+        make_label(row, "FONT SIZE").pack(side="left")
+        fs_var = tk.IntVar(value=self.font_size)
+
+        def on_fs_change(*_):
+            try:
+                val = fs_var.get()
+            except Exception:
+                return
+            if 8 <= val <= 48:
+                self.font_size = val
+                self._apply_zoom(show_status=False)
+
+        fs_spin = tk.Spinbox(row, from_=8, to=48, textvariable=fs_var, width=4,
+                             command=lambda: on_fs_change(),
+                             bg=t["bg2"], fg=t["fg"], font=uf, bd=0,
+                             relief="flat", highlightthickness=1,
+                             highlightbackground=t["bg2"],
+                             highlightcolor=t["accent"],
+                             buttonbackground=t["bg2"])
+        fs_spin.pack(side="right")
+        fs_var.trace_add("write", on_fs_change)
+
+        # Target language
+        row = make_row()
+        make_label(row, "TARGET LANGUAGE").pack(side="left")
+        te = tk.Entry(row, textvariable=self.lang_var, width=6,
+                      bg=t["bg2"], fg=t["fg"], insertbackground=t["fg"],
+                      font=uf, bd=0, relief="flat",
+                      highlightthickness=1, highlightbackground=t["bg2"],
+                      highlightcolor=t["accent"])
+        te.pack(side="right")
+
+        # Dictionary mode
+        if MW_KEY:
+            row = make_row()
+            make_label(row, "DICTIONARY").pack(side="left")
+            dm = tk.OptionMenu(row, self.dict_var, "both", "dict", "off")
+            dm.config(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
+                      highlightthickness=0, activebackground=t["bg2"],
+                      activeforeground=t["fg"])
+            dm["menu"].config(bg=t["bg2"], fg=t["fg"], font=uf,
+                              activebackground=t["accent"],
+                              activeforeground=t["fg"], bd=0)
+            dm.pack(side="right")
+
+        # Clipboard
+        row = make_row()
+        make_label(row, "CLIPBOARD MONITOR").pack(side="left")
+        cc = tk.Checkbutton(row, variable=self.clip_var,
+                            bg=t["bg"], selectcolor=t["bg2"],
+                            activebackground=t["bg"], highlightthickness=0)
+        cc.pack(side="right")
+
+        # Separator + config path
+        tk.Frame(win, bg=t["fg_dim"], height=1).pack(fill="x", padx=20, pady=(20, 0))
+        tk.Label(win, text=f"config: {CONFIG_PATH}", bg=t["bg"],
+                 fg=t["fg_dim"], font=sf, anchor="w").pack(
+                     fill="x", padx=20, pady=(8, 10))
+
+        def on_close():
+            try:
+                self.font_size = fs_var.get()
+            except Exception:
+                pass
+            self._apply_zoom(show_status=False)
+            win.destroy()
+            self._settings_win = None
+
+        win.protocol("WM_DELETE_WINDOW", on_close)
+        win.bind("<Escape>", lambda e: on_close())
+        return "break"
 
     def _set_output(self, text):
         self.output_text.config(state="normal")
@@ -537,27 +652,23 @@ class TranslatorGUI:
         self._apply_zoom()
         return "break"
 
-    def _apply_zoom(self):
+    def _apply_zoom(self, show_status=True):
         self.apply_theme()
-        self.status_var.set(f"font size: {self.font_size}")
+        if show_status:
+            self.status_var.set(f"font size: {self.font_size}")
 
     def apply_theme(self, *_args):
         t = THEMES.get(self.theme_var.get(), THEMES[DEFAULT_THEME])
         self.theme = t
         bg, bg2, fg = t["bg"], t["bg2"], t["fg"]
         fg_dim, accent, select = t["fg_dim"], t["accent"], t["select"]
-        f, uf = self.text_font(), self.ui_font()
+        f, uf, sf = self.text_font(), self.ui_font(), self.small_font()
         self.root.configure(bg=bg)
         self.top_frame.configure(bg=bg)
         self.target_label.configure(bg=bg, fg=fg_dim, font=uf)
         self.lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
                                   highlightbackground=bg2, highlightcolor=accent, font=uf)
-        self.clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
-                                  activebackground=bg, activeforeground=fg, font=uf)
-        self.theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2,
-                                  activeforeground=fg, font=uf)
-        self.theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
-                                          activeforeground=fg, font=uf)
+        self.settings_btn.configure(bg=bg, fg=accent, font=sf)
         for w in (self.input_text, self.output_text):
             w.configure(bg=bg2, fg=fg, insertbackground=fg,
                         selectbackground=select, selectforeground=fg, font=f)
@@ -566,8 +677,7 @@ class TranslatorGUI:
         for s in (self.input_scroll, self.output_scroll):
             s.configure(bg=bg2, troughcolor=bg2)
         self.paned.configure(bg=fg_dim)
-        self.status_label.configure(bg=bg, fg=fg_dim,
-                                    font=self.ui_font(max(self.font_size - 3, 8)))
+        self.status_label.configure(bg=bg, fg=fg_dim, font=sf)
 
     def run(self):
         self.root.mainloop()
