@@ -327,6 +327,7 @@ class TranslatorGUI:
         self.dict_mode = dict_mode
 
         clip_mode = clip_mode or self.config.get("clipboard", False)
+        self._split = self.config.get("split", "vertical")
         self._sash_frac = self.config.get("sash_frac", 0.5)
 
         self.root = tk.Tk()
@@ -368,9 +369,13 @@ class TranslatorGUI:
         cfg["font_size"] = self.font_size
         cfg["geometry"] = self.root.geometry()
         cfg["clipboard"] = self.clip_var.get()
+        cfg["split"] = self.split_var.get()
         try:
             coord = self.paned.sash_coord(0)
-            cfg["sash_frac"] = coord[1] / self.paned.winfo_height()
+            if self.split_var.get() == "horizontal":
+                cfg["sash_frac"] = coord[0] / self.paned.winfo_width()
+            else:
+                cfg["sash_frac"] = coord[1] / self.paned.winfo_height()
         except Exception:
             pass
         save_config(cfg)
@@ -391,6 +396,7 @@ class TranslatorGUI:
 
         self.clip_var = tk.BooleanVar(value=clip_mode)
         self.dict_var = tk.StringVar(value=self.dict_mode if MW_KEY else "off")
+        self.split_var = tk.StringVar(value=self._split)
         self.theme_var = tk.StringVar(value=effective_theme)
 
         self.settings_btn = tk.Label(self.top_frame, text="settings",
@@ -404,18 +410,42 @@ class TranslatorGUI:
                                      anchor="w", pady=4)
         self.status_label.pack(fill="x", padx=12, side="bottom")
 
-        # Paned window
-        self.paned = tk.PanedWindow(self.root, orient="vertical",
-                                    sashwidth=4, sashrelief="flat", bd=0,
-                                    opaqueresize=True)
+        self._text_opts = dict(bd=0, relief="flat", highlightthickness=0,
+                               wrap="word", padx=10, pady=8)
+        self.paned = None
+        self.input_frame = None
+        self.input_text = None
+        self.output_frame = None
+        self.output_text = None
+        self._build_paned(self._split)
+
+    def _build_paned(self, orient, frac=None):
+        """Create (or recreate) the paned window with given orientation."""
+        tk = self.tk
+        if frac is None:
+            frac = self._sash_frac
+
+        # Save existing text content before destroying
+        input_content = ""
+        output_content = ""
+        if self.input_text:
+            input_content = self.input_text.get("1.0", "end-1c")
+        if self.output_text:
+            output_content = self.output_text.get("1.0", "end-1c")
+
+        # Destroy old widgets if they exist
+        if self.paned:
+            self.paned.destroy()
+
+        # Create fresh paned + frames + text widgets
+        self.paned = tk.PanedWindow(self.root, orient=orient,
+                                    sashwidth=8, sashrelief="flat", bd=0,
+                                    sashpad=0, opaqueresize=True,
+                                    showhandle=False)
         self.paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
 
-        text_opts = dict(bd=0, relief="flat", highlightthickness=0,
-                         wrap="word", padx=10, pady=8)
-
-        # Input pane
         self.input_frame = tk.Frame(self.paned)
-        self.input_text = tk.Text(self.input_frame, **text_opts)
+        self.input_text = tk.Text(self.input_frame, **self._text_opts)
         self.input_scroll = tk.Scrollbar(self.input_frame, command=self.input_text.yview,
                                          highlightthickness=0, bd=0, width=8)
         self.input_text.config(yscrollcommand=self.input_scroll.set)
@@ -423,9 +453,8 @@ class TranslatorGUI:
         self.input_text.pack(fill="both", expand=True)
         self.paned.add(self.input_frame, minsize=60)
 
-        # Output pane
         self.output_frame = tk.Frame(self.paned)
-        self.output_text = tk.Text(self.output_frame, state="disabled", **text_opts)
+        self.output_text = tk.Text(self.output_frame, state="disabled", **self._text_opts)
         self.output_scroll = tk.Scrollbar(self.output_frame, command=self.output_text.yview,
                                           highlightthickness=0, bd=0, width=8)
         self.output_text.config(yscrollcommand=self.output_scroll.set)
@@ -433,10 +462,35 @@ class TranslatorGUI:
         self.output_text.pack(fill="both", expand=True)
         self.paned.add(self.output_frame, minsize=60)
 
-    def _bind_events(self):
+        # Restore text content
+        if input_content:
+            self.input_text.insert("1.0", input_content)
+        if output_content:
+            self.output_text.config(state="normal")
+            self.output_text.insert("1.0", output_content)
+            self.output_text.config(state="disabled")
+
+        # Re-bind input events (old text widget was destroyed)
         self.input_text.bind("<Return>", self._do_translate)
         self.input_text.bind("<Control-Return>", self._do_translate)
         self.input_text.bind("<Shift-Return>", lambda e: None)
+        self.input_text.focus_set()
+
+        # Apply theme and restore sash
+        self.apply_theme()
+        def _set_sash():
+            self.root.update_idletasks()
+            if orient == "horizontal":
+                size = self.paned.winfo_width()
+                if size > 1:
+                    self.paned.sash_place(0, int(size * frac), 0)
+            else:
+                size = self.paned.winfo_height()
+                if size > 1:
+                    self.paned.sash_place(0, 0, int(size * frac))
+        self.root.after(100, _set_sash)
+
+    def _bind_events(self):
         self.root.bind("<Control-Button-4>", self._zoom)
         self.root.bind("<Control-Button-5>", self._zoom)
         self.root.bind("<Control-MouseWheel>", self._zoom)
@@ -447,17 +501,9 @@ class TranslatorGUI:
         self.root.bind("<Control-comma>", self._open_settings)
         self.settings_btn.bind("<Button-1>", self._open_settings)
         self.theme_var.trace_add("write", self.apply_theme)
+        self.split_var.trace_add("write", lambda *_: self._build_paned(
+            self.split_var.get(), 0.5))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-
-        # Restore sash position (once, no Configure binding to avoid loop)
-        frac = self._sash_frac
-        def set_sash():
-            h = self.paned.winfo_height()
-            if h > 1:
-                self.paned.sash_place(0, 0, int(h * frac))
-        self.root.after(50, set_sash)
-
-        self.input_text.focus_set()
 
     def _on_close(self):
         self._save_config()
@@ -474,7 +520,7 @@ class TranslatorGUI:
         win = tk.Toplevel(self.root)
         self._settings_win = win
         win.title("tt — settings")
-        win.geometry("420x380")
+        win.geometry("420x420")
         win.minsize(350, 300)
         win.configure(bg=t["bg"])
         win.transient(self.root)
@@ -559,6 +605,17 @@ class TranslatorGUI:
                             bg=t["bg"], selectcolor=t["bg2"],
                             activebackground=t["bg"], highlightthickness=0)
         cc.pack(side="right")
+
+        # Split orientation
+        row = make_row()
+        make_label(row, "SPLIT").pack(side="left")
+        sp = tk.OptionMenu(row, self.split_var, "vertical", "horizontal")
+        sp.config(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
+                  highlightthickness=0, activebackground=t["bg2"],
+                  activeforeground=t["fg"])
+        sp["menu"].config(bg=t["bg2"], fg=t["fg"], font=uf,
+                          activebackground=t["accent"], activeforeground=t["fg"], bd=0)
+        sp.pack(side="right")
 
         # Separator + config path
         tk.Frame(win, bg=t["fg_dim"], height=1).pack(fill="x", padx=20, pady=(20, 0))
@@ -676,7 +733,7 @@ class TranslatorGUI:
             fr.configure(bg=bg2)
         for s in (self.input_scroll, self.output_scroll):
             s.configure(bg=bg2, troughcolor=bg2)
-        self.paned.configure(bg=fg_dim)
+        self.paned.configure(bg=bg)
         self.status_label.configure(bg=bg, fg=fg_dim, font=sf)
 
     def run(self):
