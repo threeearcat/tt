@@ -402,6 +402,11 @@ class TranslatorGUI:
         self.settings_btn = tk.Label(self.top_frame, text="settings",
                                      cursor="hand2")
         self.settings_btn.pack(side="right")
+
+        self.clip_label = tk.Label(self.top_frame, text="clip",
+                                   cursor="hand2")
+        self.clip_label.pack(side="right", padx=(0, 10))
+        self._update_clip_label()
         self._settings_win = None
 
         # Status bar (pack before paned so it gets space first)
@@ -500,10 +505,26 @@ class TranslatorGUI:
         self.root.bind("<Control-0>", self._zoom_reset)
         self.root.bind("<Control-comma>", self._open_settings)
         self.settings_btn.bind("<Button-1>", self._open_settings)
+        self.clip_label.bind("<Button-1>", lambda e: self._toggle_clip())
+        self.root.bind("<Control-d>", lambda e: self._toggle_clip())
         self.theme_var.trace_add("write", self.apply_theme)
         self.split_var.trace_add("write", lambda *_: self._build_paned(
             self.split_var.get(), 0.5))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _update_clip_label(self):
+        on = self.clip_var.get()
+        t = self.theme
+        if on:
+            self.clip_label.configure(fg=t["accent"])
+        else:
+            self.clip_label.configure(fg=t["fg_dim"])
+
+    def _toggle_clip(self):
+        self.clip_var.set(not self.clip_var.get())
+        self._update_clip_label()
+        state = "on" if self.clip_var.get() else "off"
+        self.status_var.set(f"clipboard: {state}")
 
     def _on_close(self):
         self._save_config()
@@ -726,6 +747,8 @@ class TranslatorGUI:
         self.lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
                                   highlightbackground=bg2, highlightcolor=accent, font=uf)
         self.settings_btn.configure(bg=bg, fg=accent, font=sf)
+        self.clip_label.configure(bg=bg, font=sf)
+        self._update_clip_label()
         for w in (self.input_text, self.output_text):
             w.configure(bg=bg2, fg=fg, insertbackground=fg,
                         selectbackground=select, selectforeground=fg, font=f)
