@@ -161,6 +161,13 @@ def load_config():
         return {}
 
 
+def save_config(cfg):
+    """Save config to ~/.config/tt/config.json."""
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
 def translate(text, target="ko", source="auto"):
     """Translate text. Returns (translated_text, detected_source_lang)."""
     params = urllib.parse.urlencode({
@@ -319,10 +326,13 @@ class TranslatorGUI:
         self.font_size = self.config.get("font_size", DEFAULT_FONT_SIZE)
         self.dict_mode = dict_mode
 
+        clip_mode = clip_mode or self.config.get("clipboard", False)
+        self._sash_frac = self.config.get("sash_frac", 0.5)
+
         self.root = tk.Tk()
         self.root.title("tt")
-        self.root.geometry("700x500")
-        self.root.minsize(300, 100)
+        self.root.geometry(self.config.get("geometry", "750x550"))
+        self.root.minsize(400, 300)
 
         # Font setup
         self.font_family = "monospace"
@@ -347,6 +357,23 @@ class TranslatorGUI:
 
     def ui_font(self, size=0):
         return (self.font_family, size or max(self.font_size - 2, 9))
+
+    def small_font(self):
+        return (self.font_family, max(self.font_size - 5, 8))
+
+    def _save_config(self):
+        cfg = load_config()
+        cfg["theme"] = self.theme_var.get()
+        cfg["dict_mode"] = self.dict_var.get()
+        cfg["font_size"] = self.font_size
+        cfg["geometry"] = self.root.geometry()
+        cfg["clipboard"] = self.clip_var.get()
+        try:
+            coord = self.paned.sash_coord(0)
+            cfg["sash_frac"] = coord[1] / self.paned.winfo_height()
+        except Exception:
+            pass
+        save_config(cfg)
 
     def _create_widgets(self, fixed_target, clip_mode, effective_theme):
         tk = self.tk
@@ -421,15 +448,21 @@ class TranslatorGUI:
         self.root.bind("<Control-minus>", self._zoom_out)
         self.root.bind("<Control-0>", self._zoom_reset)
         self.theme_var.trace_add("write", self.apply_theme)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        def set_sash(_=None):
+        # Restore sash position (once, no Configure binding to avoid loop)
+        frac = self._sash_frac
+        def set_sash():
             h = self.paned.winfo_height()
             if h > 1:
-                self.paned.sash_place(0, 0, h // 2)
+                self.paned.sash_place(0, 0, int(h * frac))
         self.root.after(50, set_sash)
-        self.paned.bind("<Configure>", set_sash)
 
         self.input_text.focus_set()
+
+    def _on_close(self):
+        self._save_config()
+        self.root.destroy()
 
     def _set_output(self, text):
         self.output_text.config(state="normal")
