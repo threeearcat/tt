@@ -479,6 +479,7 @@ class TranslatorGUI:
         self.input_text.bind("<Return>", self._do_translate)
         self.input_text.bind("<Control-Return>", self._do_translate)
         self.input_text.bind("<Shift-Return>", lambda e: None)
+        self.input_text.bind("<Control-a>", self._select_all)
         self.input_text.focus_set()
 
         # Apply theme and restore sash
@@ -516,15 +517,17 @@ class TranslatorGUI:
         on = self.clip_var.get()
         t = self.theme
         if on:
-            self.clip_label.configure(fg=t["accent"])
+            self.clip_label.configure(text="clip: on", fg=t["accent"])
         else:
-            self.clip_label.configure(fg=t["fg_dim"])
+            self.clip_label.configure(text="clip: off", fg=t["fg_dim"])
 
     def _toggle_clip(self):
         self.clip_var.set(not self.clip_var.get())
         self._update_clip_label()
-        state = "on" if self.clip_var.get() else "off"
-        self.status_var.set(f"clipboard: {state}")
+
+    def _select_all(self, _event=None):
+        self.input_text.tag_add("sel", "1.0", "end")
+        return "break"
 
     def _on_close(self):
         self._save_config()
@@ -621,10 +624,11 @@ class TranslatorGUI:
 
         # Clipboard
         row = make_row()
-        make_label(row, "CLIPBOARD MONITOR").pack(side="left")
+        make_label(row, "CLIPBOARD (Ctrl+D)").pack(side="left")
         cc = tk.Checkbutton(row, variable=self.clip_var,
                             bg=t["bg"], selectcolor=t["bg2"],
-                            activebackground=t["bg"], highlightthickness=0)
+                            activebackground=t["bg"], highlightthickness=0,
+                            command=self._update_clip_label)
         cc.pack(side="right")
 
         # Split orientation
@@ -702,7 +706,8 @@ class TranslatorGUI:
         if current and current != self._prev_clip:
             self._prev_clip = current
             text = current.strip()
-            if text:
+            # Skip if user is typing (input has focus)
+            if text and self.root.focus_get() != self.input_text:
                 self.input_text.delete("1.0", "end")
                 self.input_text.insert("1.0", text)
                 self._run_translate(text, prefix="clipboard → ")
