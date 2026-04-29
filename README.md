@@ -11,6 +11,7 @@ A fast, simple terminal translator using Google Translate. No API key required.
 - **Pipe support**: `echo "hello" | tt`
 - **Font zoom**: Ctrl+scroll to resize text in GUI
 - **Cross-platform**: macOS and Linux
+- **Dictionary lookup**: Merriam-Webster definitions for single English words (optional)
 - **Zero dependencies**: Python 3 stdlib only (tkinter)
 
 ## Install
@@ -47,6 +48,7 @@ tt --repl
 | Flag | Description |
 |------|-------------|
 | `-t`, `--target` | Target language code (default: auto-toggle ko/en) |
+| `-d`, `--dict` | Dictionary mode for single words: `both` (default), `dict`, `off` |
 | `--clip` | Clipboard monitoring mode (GUI with auto-translate) |
 | `--repl` | Interactive REPL mode |
 | `--theme` | Color theme (see below) |
@@ -76,6 +78,31 @@ Optional config file at `~/.config/tt/config.json`. If absent, defaults are used
 | `font_size` | GUI font size | `20` |
 | `target` | Target language | auto-toggle ko/en |
 | `font_family` | Preferred font family | auto-detect |
+| `dict_mode` | Dictionary mode (`both`, `dict`, `off`) | `both` |
+| `clipboard` | Clipboard monitor on startup | `false` |
+| `sash_frac` | Input/output split ratio | `0.5` |
+
+## Merriam-Webster Dictionary (Optional)
+
+When a single English word is entered, `tt` can show Merriam-Webster dictionary definitions alongside the translation. To enable this:
+
+1. Register for a free API key at [dictionaryapi.com](https://dictionaryapi.com/register/index)
+   - Select **Collegiate Dictionary** when choosing a product
+2. Add the key to `~/.config/tt/config.json`:
+
+```json
+{
+  "mw_api_key": "YOUR_API_KEY_HERE"
+}
+```
+
+3. Use `-d` to control dictionary behavior:
+
+```bash
+tt "hello"            # translate + dictionary (default: both)
+tt -d dict "hello"    # dictionary only
+tt -d off "hello"     # translate only
+```
 
 ## GUI Shortcuts
 
@@ -86,6 +113,9 @@ Optional config file at `~/.config/tt/config.json`. If absent, defaults are used
 | Ctrl+Scroll | Zoom in/out |
 | Ctrl++/Ctrl+- | Zoom in/out |
 | Ctrl+0 | Reset zoom |
+| Ctrl+, | Open settings |
+
+Settings are also accessible via the **settings** button in the GUI and saved automatically on exit.
 
 ## Requirements
 

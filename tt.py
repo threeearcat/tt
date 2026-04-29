@@ -16,9 +16,87 @@ import urllib.parse
 import urllib.request
 
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
+MW_API_URL = "https://www.dictionaryapi.com/api/v3/references/collegiate/json"
+CONFIG_PATH = os.path.expanduser("~/.config/tt/config.json")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT = 5
 MAX_RETRIES = 2
+
+
+def _load_mw_key():
+    """Load Merriam-Webster API key from tt config."""
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f).get("mw_api_key")
+    except Exception:
+        return None
+
+
+MW_KEY = _load_mw_key()
+
+
+def is_single_word(text):
+    """Check if text is a single English word."""
+    return bool(text) and len(text.split()) == 1 and text.isascii() and text.isalpha()
+
+
+def mw_lookup(word):
+    """Look up a word in Merriam-Webster. Returns formatted string or None."""
+    if not MW_KEY:
+        return None
+    url = f"{MW_API_URL}/{urllib.parse.quote(word)}?key={MW_KEY}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+    if not data or not isinstance(data[0], dict):
+        if data and isinstance(data[0], str):
+            return f"Word not found. Suggestions: {', '.join(data[:5])}"
+        return None
+
+    lines = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        word_id = entry.get("meta", {}).get("id", word).split(":")[0]
+        pos = entry.get("fl", "")
+        pron = ""
+        try:
+            pron = entry["hwi"]["prs"][0]["mw"]
+        except (KeyError, IndexError, TypeError):
+            pass
+
+        header = word_id
+        if pron:
+            header += f"  /{pron}/"
+        if pos:
+            header += f"  ({pos})"
+        lines.append(header)
+
+        for i, d in enumerate(entry.get("shortdef", []), 1):
+            lines.append(f"  {i}. {d}")
+
+        for def_block in entry.get("def", []):
+            for sseq in def_block.get("sseq", []):
+                for sense_group in sseq:
+                    if not isinstance(sense_group, list) or len(sense_group) < 2:
+                        continue
+                    sense = sense_group[1]
+                    if isinstance(sense, dict):
+                        for dt_item in sense.get("dt", []):
+                            if isinstance(dt_item, list) and len(dt_item) >= 2:
+                                if dt_item[0] == "vis":
+                                    for vis in dt_item[1]:
+                                        ex = vis.get("t", "")
+                                        ex = ex.replace("{it}", "_").replace("{/it}", "_")
+                                        ex = ex.replace("{wi}", "").replace("{/wi}", "")
+                                        ex = ex.replace("{phrase}", "").replace("{/phrase}", "")
+                                        lines.append(f"     e.g. {ex}")
+        lines.append("")
+    return "\n".join(lines).strip() if lines else None
 
 THEMES = {
     "gruvbox-dark": {
@@ -72,7 +150,55 @@ THEMES = {
 }
 DEFAULT_THEME = "gruvbox-dark"
 DEFAULT_FONT_SIZE = 20
-CONFIG_PATH = os.path.expanduser("~/.config/tt/config.json")
+
+# Configurable keybindings: action → default tk key sequence
+DEFAULT_KEYBINDINGS = {
+    "clear": "<Control-l>",
+    "clipboard": "<Control-d>",
+    "settings": "<Control-comma>",
+    "select_all": "<Control-a>",
+}
+
+
+def _key_to_display(tk_key):
+    """Convert tk key like '<Control-l>' to display like 'Ctrl+L'."""
+    s = tk_key.strip("<>")
+    parts = s.split("-")
+    display = []
+    for p in parts:
+        if p == "Control":
+            display.append("Ctrl")
+        elif p == "Shift":
+            display.append("Shift")
+        elif p == "Alt":
+            display.append("Alt")
+        elif p == "comma":
+            display.append(",")
+        elif p == "plus":
+            display.append("+")
+        elif p == "minus":
+            display.append("-")
+        else:
+            display.append(p.upper() if len(p) == 1 else p)
+    return "+".join(display)
+
+
+def _event_to_tk_key(event):
+    """Convert a tk KeyPress event to a tk key sequence string."""
+    parts = []
+    if event.state & 0x4:
+        parts.append("Control")
+    if event.state & 0x1:
+        parts.append("Shift")
+    if event.state & 0x8:
+        parts.append("Alt")
+    sym = event.keysym
+    # Ignore bare modifier keys
+    if sym in ("Control_L", "Control_R", "Shift_L", "Shift_R",
+               "Alt_L", "Alt_R", "Meta_L", "Meta_R", "Super_L", "Super_R"):
+        return None
+    parts.append(sym.lower() if len(sym) == 1 else sym)
+    return "<" + "-".join(parts) + ">"
 
 
 def load_config():
@@ -82,6 +208,13 @@ def load_config():
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def save_config(cfg):
+    """Save config to ~/.config/tt/config.json."""
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
 
 
 def translate(text, target="ko", source="auto"):
@@ -130,14 +263,30 @@ def auto_target(text):
     return "ko"
 
 
-def translate_auto(text, fixed_target=None):
-    """Translate with auto-toggle unless fixed_target is set."""
+def translate_auto(text, fixed_target=None, dict_mode="both"):
+    """Translate with auto-toggle unless fixed_target is set.
+
+    dict_mode: "both" (translate+dict), "dict" (dict only), "off" (translate only)
+    """
+    word = text.strip()
+    use_dict = MW_KEY and dict_mode != "off" and is_single_word(word)
+
+    if use_dict and dict_mode == "dict":
+        defn = mw_lookup(word.lower())
+        return defn if defn else f"No dictionary entry for '{word}'"
+
     target = fixed_target if fixed_target else auto_target(text)
     translated, detected = translate(text, target=target)
-    return translated
+    result = translated
+
+    if use_dict:
+        defn = mw_lookup(word.lower())
+        if defn:
+            result += "\n\n── dictionary ──\n" + defn
+    return result
 
 
-def repl(fixed_target=None):
+def repl(fixed_target=None, dict_mode="both"):
     """Interactive REPL mode."""
     label = fixed_target if fixed_target else "auto"
     print(f"tt ({label}) | :q to quit")
@@ -152,7 +301,7 @@ def repl(fixed_target=None):
         if text == ":q":
             break
         try:
-            print(translate_auto(text, fixed_target))
+            print(translate_auto(text, fixed_target, dict_mode=dict_mode))
         except Exception as e:
             print(f"[error] {e}", file=sys.stderr)
 
@@ -257,7 +406,8 @@ def get_clipboard():
 class TranslatorGUI:
     """Tkinter GUI for tt."""
 
-    def __init__(self, fixed_target=None, clip_mode=False, theme_name=None, config=None):
+    def __init__(self, fixed_target=None, clip_mode=False, theme_name=None,
+                 config=None, dict_mode="both"):
         import tkinter as tk
         import tkinter.font as tkfont
 
@@ -266,11 +416,21 @@ class TranslatorGUI:
         effective_theme = theme_name or self.config.get("theme", DEFAULT_THEME)
         self.theme = THEMES.get(effective_theme, THEMES[DEFAULT_THEME])
         self.font_size = self.config.get("font_size", DEFAULT_FONT_SIZE)
+        self.dict_mode = dict_mode
+
+        # Load keybindings
+        saved_kb = self.config.get("keybindings", {})
+        self.keybindings = dict(DEFAULT_KEYBINDINGS)
+        self.keybindings.update(saved_kb)
+
+        clip_mode = clip_mode or self.config.get("clipboard", False)
+        self._split = self.config.get("split", "vertical")
+        self._sash_frac = self.config.get("sash_frac", 0.5)
 
         self.root = tk.Tk()
         self.root.title("tt")
-        self.root.geometry("700x500")
-        self.root.minsize(300, 100)
+        self.root.geometry(self.config.get("geometry", "750x550"))
+        self.root.minsize(400, 300)
 
         # Font setup
         self.font_family = "monospace"
@@ -296,6 +456,34 @@ class TranslatorGUI:
     def ui_font(self, size=0):
         return (self.font_family, size or max(self.font_size - 2, 9))
 
+    def small_font(self):
+        return (self.font_family, max(self.font_size - 5, 8))
+
+    def _save_config(self):
+        cfg = load_config()
+        cfg["theme"] = self.theme_var.get()
+        cfg["dict_mode"] = self.dict_var.get()
+        cfg["font_size"] = self.font_size
+        cfg["geometry"] = self.root.geometry()
+        cfg["clipboard"] = self.clip_var.get()
+        cfg["split"] = self.split_var.get()
+        # Only save non-default keybindings
+        custom_kb = {k: v for k, v in self.keybindings.items()
+                     if v != DEFAULT_KEYBINDINGS.get(k)}
+        if custom_kb:
+            cfg["keybindings"] = custom_kb
+        else:
+            cfg.pop("keybindings", None)
+        try:
+            coord = self.paned.sash_coord(0)
+            if self.split_var.get() == "horizontal":
+                cfg["sash_frac"] = coord[0] / self.paned.winfo_width()
+            else:
+                cfg["sash_frac"] = coord[1] / self.paned.winfo_height()
+        except Exception:
+            pass
+        save_config(cfg)
+
     def _create_widgets(self, fixed_target, clip_mode, effective_theme):
         tk = self.tk
 
@@ -311,34 +499,66 @@ class TranslatorGUI:
         self.lang_entry.pack(side="left", padx=(4, 0))
 
         self.clip_var = tk.BooleanVar(value=clip_mode)
-        self.clip_check = tk.Checkbutton(self.top_frame, text="clipboard",
-                                         variable=self.clip_var, highlightthickness=0)
-        self.clip_check.pack(side="right")
-
+        self.dict_var = tk.StringVar(value=self.dict_mode if MW_KEY else "off")
+        self.split_var = tk.StringVar(value=self._split)
         self.theme_var = tk.StringVar(value=effective_theme)
-        self.theme_menu = tk.OptionMenu(self.top_frame, self.theme_var, *THEMES.keys())
-        self.theme_menu.config(bd=0, relief="flat", highlightthickness=0)
-        self.theme_menu["menu"].config(bd=0)
-        self.theme_menu.pack(side="right", padx=(0, 8))
+
+        self.settings_btn = tk.Label(self.top_frame, text="settings",
+                                     cursor="hand2")
+        self.settings_btn.pack(side="right")
+
+        self.clear_btn = tk.Label(self.top_frame, text="clear",
+                                   cursor="hand2")
+        self.clear_btn.pack(side="right", padx=(0, 10))
+
+        self.clip_label = tk.Label(self.top_frame, text="clip",
+                                   cursor="hand2")
+        self.clip_label.pack(side="right", padx=(0, 10))
+        self._update_clip_label()
+        self._settings_win = None
 
         # Status bar (pack before paned so it gets space first)
-        self.status_var = tk.StringVar(value="Enter to translate | Shift+Enter for newline")
+        self.status_var = tk.StringVar(value="Enter: translate | Ctrl+L: clear | Ctrl+D: clipboard")
         self.status_label = tk.Label(self.root, textvariable=self.status_var,
                                      anchor="w", pady=4)
         self.status_label.pack(fill="x", padx=12, side="bottom")
 
-        # Paned window
-        self.paned = tk.PanedWindow(self.root, orient="vertical",
-                                    sashwidth=4, sashrelief="flat", bd=0,
-                                    opaqueresize=True)
+        self._text_opts = dict(bd=0, relief="flat", highlightthickness=0,
+                               wrap="word", padx=10, pady=8)
+        self.paned = None
+        self.input_frame = None
+        self.input_text = None
+        self.output_frame = None
+        self.output_text = None
+        self._build_paned(self._split)
+
+    def _build_paned(self, orient, frac=None):
+        """Create (or recreate) the paned window with given orientation."""
+        tk = self.tk
+        if frac is None:
+            frac = self._sash_frac
+
+        # Save existing text content before destroying
+        input_content = ""
+        output_content = ""
+        if self.input_text:
+            input_content = self.input_text.get("1.0", "end-1c")
+        if self.output_text:
+            output_content = self.output_text.get("1.0", "end-1c")
+
+        # Destroy old widgets if they exist
+        if self.paned:
+            self.paned.destroy()
+
+        # Create fresh paned + frames + text widgets
+        self.paned = tk.PanedWindow(self.root, orient=orient,
+                                    sashwidth=8, sashrelief="flat", bd=0,
+                                    sashpad=0, opaqueresize=True,
+                                    showhandle=False)
         self.paned.pack(fill="both", expand=True, padx=12, pady=(4, 0))
 
-        text_opts = dict(bd=0, relief="flat", highlightthickness=0,
-                         wrap="word", padx=10, pady=8)
-
-        # Input pane
         self.input_frame = tk.Frame(self.paned)
-        self.input_text = tk.Text(self.input_frame, **text_opts)
+        self.input_text = tk.Text(self.input_frame, **self._text_opts)
         self.input_scroll = tk.Scrollbar(self.input_frame, command=self.input_text.yview,
                                          highlightthickness=0, bd=0, width=8)
         self.input_text.config(yscrollcommand=self.input_scroll.set)
@@ -346,9 +566,8 @@ class TranslatorGUI:
         self.input_text.pack(fill="both", expand=True)
         self.paned.add(self.input_frame, minsize=60)
 
-        # Output pane
         self.output_frame = tk.Frame(self.paned)
-        self.output_text = tk.Text(self.output_frame, state="disabled", **text_opts)
+        self.output_text = tk.Text(self.output_frame, state="disabled", **self._text_opts)
         self.output_scroll = tk.Scrollbar(self.output_frame, command=self.output_text.yview,
                                           highlightthickness=0, bd=0, width=8)
         self.output_text.config(yscrollcommand=self.output_scroll.set)
@@ -356,10 +575,39 @@ class TranslatorGUI:
         self.output_text.pack(fill="both", expand=True)
         self.paned.add(self.output_frame, minsize=60)
 
-    def _bind_events(self):
+        # Restore text content
+        if input_content:
+            self.input_text.insert("1.0", input_content)
+        if output_content:
+            self.output_text.config(state="normal")
+            self.output_text.insert("1.0", output_content)
+            self.output_text.config(state="disabled")
+
+        # Re-bind input events (old text widget was destroyed)
         self.input_text.bind("<Return>", self._do_translate)
         self.input_text.bind("<Control-Return>", self._do_translate)
         self.input_text.bind("<Shift-Return>", lambda e: None)
+        # Re-apply configurable bindings for input_text
+        if hasattr(self, '_bound_keys'):
+            self._apply_keybindings()
+        self.input_text.focus_set()
+
+        # Apply theme and restore sash
+        self.apply_theme()
+        def _set_sash():
+            self.root.update_idletasks()
+            if orient == "horizontal":
+                size = self.paned.winfo_width()
+                if size > 1:
+                    self.paned.sash_place(0, int(size * frac), 0)
+            else:
+                size = self.paned.winfo_height()
+                if size > 1:
+                    self.paned.sash_place(0, 0, int(size * frac))
+        self.root.after(100, _set_sash)
+
+    def _bind_events(self):
+        # Fixed bindings (not configurable)
         self.root.bind("<Control-Button-4>", self._zoom)
         self.root.bind("<Control-Button-5>", self._zoom)
         self.root.bind("<Control-MouseWheel>", self._zoom)
@@ -367,16 +615,334 @@ class TranslatorGUI:
         self.root.bind("<Control-equal>", self._zoom_in)
         self.root.bind("<Control-minus>", self._zoom_out)
         self.root.bind("<Control-0>", self._zoom_reset)
+        self.settings_btn.bind("<Button-1>", self._open_settings)
+        self.clear_btn.bind("<Button-1>", self._clear)
+        self.clip_label.bind("<Button-1>", lambda e: self._toggle_clip())
         self.theme_var.trace_add("write", self.apply_theme)
+        self.split_var.trace_add("write", lambda *_: self._build_paned(
+            self.split_var.get(), 0.5))
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        def set_sash(_=None):
-            h = self.paned.winfo_height()
-            if h > 1:
-                self.paned.sash_place(0, 0, h // 2)
-        self.root.after(50, set_sash)
-        self.paned.bind("<Configure>", set_sash)
+        # Configurable bindings
+        self._bound_keys = {}
+        self._apply_keybindings()
 
-        self.input_text.focus_set()
+    def _get_action_handler(self, action):
+        """Return the handler for a keybinding action."""
+        handlers = {
+            "clear": self._clear,
+            "clipboard": lambda e=None: self._toggle_clip(),
+            "settings": self._open_settings,
+            "select_all": self._select_all,
+        }
+        return handlers.get(action)
+
+    def _apply_keybindings(self):
+        """Unbind old keys, bind new ones from self.keybindings."""
+        # Unbind previous
+        for key, (widget, _) in self._bound_keys.items():
+            try:
+                widget.unbind(key)
+            except Exception:
+                pass
+        self._bound_keys = {}
+
+        # Bind new
+        input_actions = {"select_all"}
+        for action, key in self.keybindings.items():
+            handler = self._get_action_handler(action)
+            if not handler:
+                continue
+            # Some actions bind on input_text, others on root
+            if action in input_actions:
+                self.input_text.bind(key, handler)
+                self._bound_keys[key] = (self.input_text, action)
+            else:
+                self.root.bind(key, handler)
+                self._bound_keys[key] = (self.root, action)
+
+    def _update_clip_label(self):
+        on = self.clip_var.get()
+        t = self.theme
+        if on:
+            self.clip_label.configure(text="clip: on", fg=t["accent"])
+        else:
+            self.clip_label.configure(text="clip: off", fg=t["fg_dim"])
+
+    def _toggle_clip(self):
+        self.clip_var.set(not self.clip_var.get())
+        self._update_clip_label()
+
+    def _select_all(self, _event=None):
+        self.input_text.tag_add("sel", "1.0", "end")
+        return "break"
+
+    def _on_close(self):
+        self._save_config()
+        self.root.destroy()
+
+    def _open_settings(self, _event=None):
+        tk = self.tk
+        if self._settings_win and self._settings_win.winfo_exists():
+            self._settings_win.lift()
+            self._settings_win.focus_force()
+            return "break"
+
+        t = self.theme
+        win = tk.Toplevel(self.root)
+        self._settings_win = win
+        win.title("tt — settings")
+        win.geometry("460x500")
+        win.minsize(400, 400)
+        win.configure(bg=t["bg"])
+        win.transient(self.root)
+        win.lift()
+        win.focus_force()
+
+        sf = self.small_font()
+        uf = self.ui_font()
+        pad = dict(padx=20, pady=(10, 0))
+
+        entry_opts = dict(bg=t["bg2"], fg=t["fg"], insertbackground=t["fg"],
+                          font=uf, bd=0, relief="flat", highlightthickness=1,
+                          highlightbackground=t["bg2"], highlightcolor=t["accent"])
+        menu_opts = dict(bg=t["bg2"], fg=t["fg"], font=uf, bd=0, relief="flat",
+                         highlightthickness=0, activebackground=t["bg2"],
+                         activeforeground=t["fg"])
+        submenu_opts = dict(bg=t["bg2"], fg=t["fg"], font=uf,
+                            activebackground=t["accent"],
+                            activeforeground=t["fg"], bd=0)
+
+        # --- Tab bar ---
+        tab_bar = tk.Frame(win, bg=t["bg"])
+        tab_bar.pack(fill="x", padx=20, pady=(12, 0))
+
+        pages = {}
+        tab_labels = {}
+        active_tab = [None]
+
+        def switch_tab(name):
+            if active_tab[0] == name:
+                return
+            if active_tab[0]:
+                pages[active_tab[0]].pack_forget()
+                tab_labels[active_tab[0]].configure(fg=t["fg_dim"])
+            pages[name].pack(fill="both", expand=True)
+            tab_labels[name].configure(fg=t["accent"])
+            active_tab[0] = name
+
+        for tab_name in ("General", "Shortcuts", "API"):
+            lbl = tk.Label(tab_bar, text=tab_name, bg=t["bg"], fg=t["fg_dim"],
+                           font=uf, cursor="hand2", padx=8)
+            lbl.pack(side="left")
+            lbl.bind("<Button-1>", lambda e, n=tab_name: switch_tab(n))
+            tab_labels[tab_name] = lbl
+
+        tk.Frame(win, bg=t["fg_dim"], height=1).pack(fill="x", padx=20, pady=(6, 0))
+
+        # Helper for rows inside a page
+        def make_row(parent):
+            f = tk.Frame(parent, bg=t["bg"])
+            f.pack(fill="x", **pad)
+            return f
+
+        def make_label(parent, text):
+            return tk.Label(parent, text=text, bg=t["bg"], fg=t["fg_dim"],
+                            font=sf, anchor="w")
+
+        # ===== General tab =====
+        general_page = tk.Frame(win, bg=t["bg"])
+        pages["General"] = general_page
+
+        # Theme
+        row = make_row(general_page)
+        make_label(row, "THEME").pack(side="left")
+        tm = tk.OptionMenu(row, self.theme_var, *THEMES.keys())
+        tm.config(**menu_opts)
+        tm["menu"].config(**submenu_opts)
+        tm.pack(side="right")
+
+        # Font size
+        row = make_row(general_page)
+        make_label(row, "FONT SIZE").pack(side="left")
+        fs_var = tk.IntVar(value=self.font_size)
+
+        def on_fs_change(*_):
+            try:
+                val = fs_var.get()
+            except Exception:
+                return
+            if 8 <= val <= 48:
+                self.font_size = val
+                self._apply_zoom(show_status=False)
+
+        fs_spin = tk.Spinbox(row, from_=8, to=48, textvariable=fs_var, width=4,
+                             command=lambda: on_fs_change(),
+                             bg=t["bg2"], fg=t["fg"], font=uf, bd=0,
+                             relief="flat", highlightthickness=1,
+                             highlightbackground=t["bg2"],
+                             highlightcolor=t["accent"],
+                             buttonbackground=t["bg2"])
+        fs_spin.pack(side="right")
+        fs_var.trace_add("write", on_fs_change)
+
+        # Target language
+        row = make_row(general_page)
+        make_label(row, "TARGET LANGUAGE").pack(side="left")
+        te = tk.Entry(row, textvariable=self.lang_var, width=6, **entry_opts)
+        te.pack(side="right")
+
+        # Dictionary mode
+        row = make_row(general_page)
+        make_label(row, "DICTIONARY").pack(side="left")
+        dm = tk.OptionMenu(row, self.dict_var, "both", "dict", "off")
+        dm.config(**menu_opts)
+        dm["menu"].config(**submenu_opts)
+        dm.pack(side="right")
+
+        # Clipboard
+        row = make_row(general_page)
+        make_label(row, "CLIPBOARD").pack(side="left")
+        cc = tk.Checkbutton(row, variable=self.clip_var,
+                            bg=t["bg"], selectcolor=t["bg2"],
+                            activebackground=t["bg"], highlightthickness=0,
+                            command=self._update_clip_label)
+        cc.pack(side="right")
+
+        # Split orientation
+        row = make_row(general_page)
+        make_label(row, "SPLIT").pack(side="left")
+        sp = tk.OptionMenu(row, self.split_var, "vertical", "horizontal")
+        sp.config(**menu_opts)
+        sp["menu"].config(**submenu_opts)
+        sp.pack(side="right")
+
+        # ===== Shortcuts tab =====
+        shortcuts_page = tk.Frame(win, bg=t["bg"])
+        pages["Shortcuts"] = shortcuts_page
+
+        # Editable shortcuts
+        editable = [
+            ("clear", "Clear"),
+            ("select_all", "Select all"),
+            ("clipboard", "Clipboard toggle"),
+            ("settings", "Settings"),
+        ]
+        capturing = [None]  # (action, label_widget)
+
+        def start_capture(action, lbl):
+            if capturing[0]:
+                # Cancel previous capture
+                old_action, old_lbl = capturing[0]
+                old_lbl.configure(fg=t["fg"], text=_key_to_display(
+                    self.keybindings[old_action]))
+            capturing[0] = (action, lbl)
+            lbl.configure(fg=t["accent"], text="press key...")
+            win.focus_set()
+
+        def on_key_capture(event):
+            if not capturing[0]:
+                return
+            tk_key = _event_to_tk_key(event)
+            if tk_key is None:
+                return  # ignore bare modifier
+            action, lbl = capturing[0]
+            capturing[0] = None
+            self.keybindings[action] = tk_key
+            lbl.configure(fg=t["fg"], text=_key_to_display(tk_key))
+            self._apply_keybindings()
+
+        win.bind("<KeyPress>", on_key_capture)
+
+        for action, display_name in editable:
+            row = make_row(shortcuts_page)
+            make_label(row, display_name.upper()).pack(side="left")
+            key_lbl = tk.Label(row, text=_key_to_display(self.keybindings[action]),
+                               bg=t["bg"], fg=t["fg"], font=uf, anchor="e",
+                               cursor="hand2")
+            key_lbl.pack(side="right")
+            key_lbl.bind("<Button-1>",
+                         lambda e, a=action, l=key_lbl: start_capture(a, l))
+
+        # Fixed shortcuts (not editable)
+        tk.Frame(shortcuts_page, bg=t["fg_dim"], height=1).pack(
+            fill="x", padx=20, pady=(14, 0))
+        make_label(shortcuts_page, "  FIXED").pack(
+            anchor="w", padx=20, pady=(6, 0))
+        fixed = [
+            ("Translate", "Enter"),
+            ("Newline", "Shift+Enter"),
+            ("Zoom in/out", "Ctrl++/- / Scroll"),
+            ("Zoom reset", "Ctrl+0"),
+        ]
+        for action, key in fixed:
+            row = make_row(shortcuts_page)
+            make_label(row, action.upper()).pack(side="left")
+            tk.Label(row, text=key, bg=t["bg"], fg=t["fg_dim"],
+                     font=uf, anchor="e").pack(side="right")
+
+        # ===== API tab =====
+        api_page = tk.Frame(win, bg=t["bg"])
+        pages["API"] = api_page
+
+        row = make_row(api_page)
+        make_label(row, "MERRIAM-WEBSTER API KEY").pack(side="left", fill="x")
+
+        key_frame = make_row(api_page)
+        mw_var = tk.StringVar(value=MW_KEY or "")
+        key_entry = tk.Entry(key_frame, textvariable=mw_var, show="●",
+                             width=30, **entry_opts)
+        key_entry.pack(side="left", fill="x", expand=True)
+
+        showing = [False]
+
+        def toggle_show():
+            showing[0] = not showing[0]
+            key_entry.configure(show="" if showing[0] else "●")
+            eye_btn.configure(text="hide" if showing[0] else "show")
+
+        eye_btn = tk.Label(key_frame, text="show", bg=t["bg"], fg=t["accent"],
+                           font=sf, cursor="hand2", padx=6)
+        eye_btn.pack(side="right")
+        eye_btn.bind("<Button-1>", lambda e: toggle_show())
+
+        hint = tk.Label(api_page, text="Get a free key at dictionaryapi.com",
+                        bg=t["bg"], fg=t["fg_dim"], font=sf, anchor="w")
+        hint.pack(fill="x", padx=20, pady=(6, 0))
+
+        # --- Footer ---
+        footer = tk.Frame(win, bg=t["bg"])
+        footer.pack(fill="x", side="bottom", padx=20, pady=(0, 10))
+        tk.Frame(footer, bg=t["fg_dim"], height=1).pack(fill="x", pady=(0, 6))
+        tk.Label(footer, text=f"config: {CONFIG_PATH}", bg=t["bg"],
+                 fg=t["fg_dim"], font=sf, anchor="w").pack(fill="x")
+
+        # Show first tab
+        switch_tab("General")
+
+        def on_close():
+            global MW_KEY
+            try:
+                self.font_size = fs_var.get()
+            except Exception:
+                pass
+            self._apply_zoom(show_status=False)
+            # Save API key if changed
+            new_key = mw_var.get().strip()
+            if new_key != (MW_KEY or ""):
+                MW_KEY = new_key if new_key else None
+                cfg = load_config()
+                if new_key:
+                    cfg["mw_api_key"] = new_key
+                else:
+                    cfg.pop("mw_api_key", None)
+                save_config(cfg)
+            win.destroy()
+            self._settings_win = None
+
+        win.protocol("WM_DELETE_WINDOW", on_close)
+        win.bind("<Escape>", lambda e: on_close())
+        return "break"
 
     def _set_output(self, text):
         self.output_text.config(state="normal")
@@ -391,11 +957,12 @@ class TranslatorGUI:
     def _run_translate(self, text, prefix=""):
         import threading
         target = self._get_target()
+        dm = self.dict_var.get()
         self.status_var.set(f"{prefix}translating..." if prefix else "translating...")
 
         def run():
             try:
-                result = translate_auto(text, target)
+                result = translate_auto(text, target, dict_mode=dm)
                 self.root.after(0, lambda: self._set_output(result))
                 self.root.after(0, lambda: self.status_var.set(
                     f"{prefix}done" if prefix else "done"))
@@ -409,8 +976,16 @@ class TranslatorGUI:
     def _do_translate(self, _event=None):
         text = self.input_text.get("1.0", "end").strip()
         if not text:
+            self._set_output("")
             return "break"
         self._run_translate(text)
+        return "break"
+
+    def _clear(self, _event=None):
+        self.input_text.delete("1.0", "end")
+        self._set_output("")
+        self.status_var.set("")
+        self.input_text.focus_set()
         return "break"
 
     def _poll_clipboard(self):
@@ -422,7 +997,8 @@ class TranslatorGUI:
         if current and current != self._prev_clip:
             self._prev_clip = current
             text = merge_soft_wraps(current.strip())
-            if text:
+            # Skip if user is typing (input has focus)
+            if text and self.root.focus_get() != self.input_text:
                 self.input_text.delete("1.0", "end")
                 self.input_text.insert("1.0", text)
                 self._run_translate(text, prefix="clipboard → ")
@@ -450,27 +1026,26 @@ class TranslatorGUI:
         self._apply_zoom()
         return "break"
 
-    def _apply_zoom(self):
+    def _apply_zoom(self, show_status=True):
         self.apply_theme()
-        self.status_var.set(f"font size: {self.font_size}")
+        if show_status:
+            self.status_var.set(f"font size: {self.font_size}")
 
     def apply_theme(self, *_args):
         t = THEMES.get(self.theme_var.get(), THEMES[DEFAULT_THEME])
         self.theme = t
         bg, bg2, fg = t["bg"], t["bg2"], t["fg"]
         fg_dim, accent, select = t["fg_dim"], t["accent"], t["select"]
-        f, uf = self.text_font(), self.ui_font()
+        f, uf, sf = self.text_font(), self.ui_font(), self.small_font()
         self.root.configure(bg=bg)
         self.top_frame.configure(bg=bg)
         self.target_label.configure(bg=bg, fg=fg_dim, font=uf)
         self.lang_entry.configure(bg=bg2, fg=fg, insertbackground=fg,
                                   highlightbackground=bg2, highlightcolor=accent, font=uf)
-        self.clip_check.configure(bg=bg, fg=fg_dim, selectcolor=bg2,
-                                  activebackground=bg, activeforeground=fg, font=uf)
-        self.theme_menu.configure(bg=bg2, fg=fg, activebackground=bg2,
-                                  activeforeground=fg, font=uf)
-        self.theme_menu["menu"].configure(bg=bg2, fg=fg, activebackground=accent,
-                                          activeforeground=fg, font=uf)
+        self.settings_btn.configure(bg=bg, fg=accent, font=sf)
+        self.clear_btn.configure(bg=bg, fg=accent, font=sf)
+        self.clip_label.configure(bg=bg, font=sf)
+        self._update_clip_label()
         for w in (self.input_text, self.output_text):
             w.configure(bg=bg2, fg=fg, insertbackground=fg,
                         selectbackground=select, selectforeground=fg, font=f)
@@ -478,17 +1053,17 @@ class TranslatorGUI:
             fr.configure(bg=bg2)
         for s in (self.input_scroll, self.output_scroll):
             s.configure(bg=bg2, troughcolor=bg2)
-        self.paned.configure(bg=fg_dim)
-        self.status_label.configure(bg=bg, fg=fg_dim,
-                                    font=self.ui_font(max(self.font_size - 3, 8)))
+        self.paned.configure(bg=bg)
+        self.status_label.configure(bg=bg, fg=fg_dim, font=sf)
 
     def run(self):
         self.root.mainloop()
 
 
-def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None):
+def gui(fixed_target=None, clip_mode=False, theme_name=None, config=None,
+        dict_mode="both"):
     """Tkinter GUI mode."""
-    app = TranslatorGUI(fixed_target, clip_mode, theme_name, config)
+    app = TranslatorGUI(fixed_target, clip_mode, theme_name, config, dict_mode)
     app.run()
 
 
@@ -501,6 +1076,9 @@ def main():
     )
     parser.add_argument("text", nargs="*", help="text to translate")
     parser.add_argument("-t", "--target", default=None, help="target language (default: auto-toggle ko/en)")
+    parser.add_argument("-d", "--dict", default=config.get("dict_mode", "both"),
+                        choices=["both", "dict", "off"],
+                        help="dictionary mode for single words (default: saved or both)")
     parser.add_argument("--clip", action="store_true", help="clipboard monitoring mode")
     parser.add_argument("--repl", action="store_true", help="interactive REPL mode")
     parser.add_argument("--theme", default=None,
@@ -511,10 +1089,11 @@ def main():
     target = args.target or config.get("target")
 
     if args.clip and not args.text:
-        gui(target, clip_mode=True, theme_name=args.theme, config=config)
+        gui(target, clip_mode=True, theme_name=args.theme, config=config,
+            dict_mode=args.dict)
     elif args.text:
         try:
-            print(translate_auto(" ".join(args.text), target))
+            print(translate_auto(" ".join(args.text), target, dict_mode=args.dict))
         except Exception as e:
             print(f"[error] {e}", file=sys.stderr)
             sys.exit(1)
@@ -522,16 +1101,16 @@ def main():
         text = sys.stdin.read().strip()
         if text:
             try:
-                print(translate_auto(text, target))
+                print(translate_auto(text, target, dict_mode=args.dict))
             except Exception as e:
                 print(f"[error] {e}", file=sys.stderr)
                 sys.exit(1)
         else:
-            gui(target, theme_name=args.theme, config=config)
+            gui(target, theme_name=args.theme, config=config, dict_mode=args.dict)
     elif args.repl:
-        repl(target)
+        repl(target, dict_mode=args.dict)
     else:
-        gui(target, theme_name=args.theme, config=config)
+        gui(target, theme_name=args.theme, config=config, dict_mode=args.dict)
 
 
 if __name__ == "__main__":
