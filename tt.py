@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import readline  # noqa: F401 - enables input() line editing
 import socket
 import subprocess
@@ -186,6 +187,49 @@ def _ensure_display():
             if os.path.exists(path):
                 os.environ["XAUTHORITY"] = path
                 break
+
+
+_SENTENCE_END = (".", "!", "?", "。", "！", "？", "…")
+_LIST_MARKER_RE = re.compile(r"^\s*([-*•‣◦]|\d+[.)])\s+")
+
+
+def merge_soft_wraps(text):
+    """Merge soft-wrapped clipboard lines while preserving real breaks.
+
+    A line not ending in sentence-terminating punctuation is treated as a
+    soft wrap and joined to the next line with a space. Blank lines and
+    list-item starts are preserved as hard breaks.
+    """
+    lines = text.split("\n")
+    if len(lines) <= 1:
+        return text
+
+    out = []
+    buf = ""
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if buf:
+                out.append(buf)
+                buf = ""
+            out.append("")
+            continue
+        is_list_item = bool(_LIST_MARKER_RE.match(line))
+        if buf and is_list_item:
+            out.append(buf)
+            buf = stripped
+        elif buf:
+            buf = buf + " " + stripped
+        else:
+            buf = stripped
+        if buf.endswith(_SENTENCE_END):
+            out.append(buf)
+            buf = ""
+    if buf:
+        out.append(buf)
+    while out and out[-1] == "":
+        out.pop()
+    return "\n".join(out)
 
 
 def get_clipboard():
@@ -377,7 +421,7 @@ class TranslatorGUI:
         current = get_clipboard()
         if current and current != self._prev_clip:
             self._prev_clip = current
-            text = current.strip()
+            text = merge_soft_wraps(current.strip())
             if text:
                 self.input_text.delete("1.0", "end")
                 self.input_text.insert("1.0", text)

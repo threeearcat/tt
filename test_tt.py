@@ -67,5 +67,43 @@ class TestTranslateAuto(unittest.TestCase):
         self.assertEqual(result, "こんにちは")
 
 
+class TestMergeSoftWraps(unittest.TestCase):
+    def test_single_line_unchanged(self):
+        self.assertEqual(tt.merge_soft_wraps("hello world"), "hello world")
+
+    def test_merge_wrapped_sentence(self):
+        self.assertEqual(tt.merge_soft_wraps("이거\n수정해"), "이거 수정해")
+
+    def test_keep_terminated_sentences_separate(self):
+        self.assertEqual(
+            tt.merge_soft_wraps("이건 수정됨.\n그리고 다음 문장은 이거."),
+            "이건 수정됨.\n그리고 다음 문장은 이거.",
+        )
+
+    def test_blank_line_preserves_paragraph(self):
+        self.assertEqual(
+            tt.merge_soft_wraps("이거\n수정해\n\n뭐 이런것들."),
+            "이거 수정해\n\n뭐 이런것들.",
+        )
+
+    def test_list_items_kept_separate(self):
+        self.assertEqual(
+            tt.merge_soft_wraps("할일:\n- 첫번째\n- 두번째"),
+            "할일:\n- 첫번째\n- 두번째",
+        )
+
+    def test_english_wrapped(self):
+        self.assertEqual(
+            tt.merge_soft_wraps("This is\na wrapped sentence."),
+            "This is a wrapped sentence.",
+        )
+
+    def test_question_and_exclamation_terminate(self):
+        self.assertEqual(
+            tt.merge_soft_wraps("Really?\nYes!"),
+            "Really?\nYes!",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
